@@ -24,8 +24,10 @@ no npm packages. These bite:
 4. **The plugin cannot start a session.** Buttons that start work send a prompt
    (`$.prompt.submit`) and Claude starts the session. Keep those prompts in
    `hooks/prompts.ts`.
-5. **Never write into another repo's checkout.** What the pane tracks about a
-   feature (started, when) goes in `$.store`, not in that repo's `features.md`.
+5. **Never write into another repo's checkout**, except its `.claude/features.md`
+   from the pane: Add and Create empty list, and Done and Remove on a row. What the
+   pane tracks about a feature (started, when) still goes in `$.store`, not in
+   `features.md`.
 6. **Reviews report before they post.** The review prompt asks for findings first;
    nothing is posted on a PR without the owner's word.
 

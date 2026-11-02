@@ -98,21 +98,208 @@ test('the pane lists features, PRs and reviews, and Start hands Claude a prompt'
       'Retry stuck requests',
     )
     expect(await ui.find({ type: 'Text', text: /Old thing/ })).toBe(undefined)
-    expect((await ui.find({ type: 'Text', text: /CI failing/ }))?.text).toBe('CI failing')
+    expect((await ui.find({ type: 'Text', text: '✗' }))?.props.color).toBe('error')
     expect((await ui.find({ type: 'Text', text: /payment retries/ }))?.text).toBe(
       'Add payment retries',
     )
     await ui.unmount()
   }
 
+  // A row is one line until its toggle opens its brief and buttons beneath it.
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: /Add a retry action/ })).toBe(undefined)
+    expect(await ui.find({ key: `start-${REPO}#retry-stuck-requests` })).toBe(undefined)
+    await ui.press({ key: `expand-next-${REPO}#retry-stuck-requests` })
+    expect((await ui.find({ type: 'Text', text: /Add a retry action/ }))?.text).toBe('Add a retry action.')
+    expect((await ui.find({ key: `start-${REPO}#retry-stuck-requests` }))?.text).toBe('Start')
+    await ui.press({ key: `expand-next-${REPO}#retry-stuck-requests` })
+    expect(await ui.find({ key: `start-${REPO}#retry-stuck-requests` })).toBe(undefined)
+    // Your PR has nothing more to show: no toggle.
+    expect(await ui.find({ key: 'expand-mine-https://github.com/me/stack/pull/86' })).toBe(undefined)
+    // The PR's link leads, in a column as wide as the widest label (portal#12).
+    const mine = await ui.find({ key: 'mine-https://github.com/me/stack/pull/86' })
+    expect(mine?.text.startsWith('stack#86')).toBe(true)
+    expect(await ui.find({ type: 'Box', text: /^stack#86$/ })).toMatchObject({ props: { width: 9 } })
+    await ui.unmount()
+  }
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect((await ui.find({ type: 'Link', text: /#12/ }))?.text).toBe('portal#12')
+    await ui.select({ key: 'filter', value: 'portal' })
+    expect(await ui.find({ type: 'Text', text: /Retry stuck requests/ })).toBe(undefined)
+    expect((await ui.find({ type: 'Text', text: /payment retries/ }))?.text).toBe('Add payment retries')
+    // Filtered to one repo, rows drop its name.
+    expect((await ui.find({ type: 'Link', text: /#12/ }))?.text).toBe('#12')
+    await ui.select({ key: 'filter', value: 'all' })
+    expect((await ui.find({ type: 'Text', text: /Retry stuck requests/ }))?.text).toBe('Retry stuck requests')
+    await ui.unmount()
+  }
+
+  // The mobile app draws no Select: the filter falls back to buttons.
+  const phone = await $.ui.mount({ ...PANE, surface: 'mobile' })
+  await phone.press({ key: 'filter-portal' })
+  expect(await phone.find({ type: 'Text', text: /Retry stuck requests/ })).toBe(undefined)
+  await phone.press({ key: 'filter-all' })
+  await phone.unmount()
+
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: `expand-next-${REPO}#retry-stuck-requests` })
   await ui.press({ key: `start-${REPO}#retry-stuck-requests` })
   expect(prompts[0]).toContain(`in ${REPO},`)
   expect(prompts[0]).toContain('Add a retry action.')
   expect(Object.keys(store.get('started') as object)).toEqual([`${REPO}#retry-stuck-requests`])
-  expect((await ui.find({ type: 'Text', text: /started/ }))?.text).toBe('started just now')
+  expect((await ui.find({ key: `going-${REPO}#retry-stuck-requests` }))?.text).toContain('just now')
 
+  await ui.press({ key: 'expand-review-https://github.com/team/portal/pull/12' })
   await ui.press({ key: 'do-review-https://github.com/team/portal/pull/12' })
   expect(prompts[1]).toContain('team/portal#12')
+  await ui.unmount()
+})
+
+test('Add writes an item into a repo list, Create starts one, Draft hands Claude a prompt', async ($, on) => {
+  mock.clock(on)
+  const EMPTY = '/home/me/repositories/personal/empty'
+  const prompts: string[] = []
+  const files = new Map<string, string>([[`${REPO}/.claude/features.md`, FEATURES]])
+  const empty = { exitCode: 0, stdout: '{"data":{}}', stderr: '', isStdoutTruncated: false, isStderrTruncated: false }
+
+  on('command.register', () => ({ value: { command: 'workbench' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('fs.exists', (_, e) => ({ value: e.path === `${REPO}/.git` || e.path === `${EMPTY}/.git` || files.has(e.path) }))
+  on('fs.list', (_, e) => ({
+    value:
+      e.path === '/home/me/repositories'
+        ? [{ name: 'personal', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }]
+        : e.path === '/home/me/repositories/personal'
+          ? [
+              { name: 'stack', kind: 'dir', size: 0, mtimeMs: 0, isLink: false },
+              { name: 'empty', kind: 'dir', size: 0, mtimeMs: 0, isLink: false },
+            ]
+          : [],
+  }))
+  on('fs.read', (_, e) => ({ value: files.get(e.path) ?? '' }))
+  on('fs.write', (_, e) => {
+    files.set(e.path, e.text)
+
+    return { value: undefined }
+  })
+  on('process.run', () => ({ value: empty }))
+  on('prompt.submit', (_, e) => {
+    prompts.push(e.text)
+
+    return { text: e.text }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'add-open' })
+    await ui.press({ key: `add-to-${EMPTY}` })
+    expect((await ui.find({ type: 'Text', text: /Add to/ }))?.text).toBe('Add to empty')
+    expect((await ui.find({ type: 'Text', text: /creates/ }))?.text).toBe('creates .claude/features.md')
+    await ui.press({ key: 'add-cancel' })
+    expect(await ui.find({ type: 'Text', text: /Add to/ })).toBe(undefined)
+    await ui.unmount()
+  }
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'add-open' })
+  await ui.press({ key: `add-to-${EMPTY}` })
+  await ui.press({ key: `create-${EMPTY}` })
+  expect(files.get(`${EMPTY}/.claude/features.md`)).toBe('# Features\n')
+  expect(await ui.find({ type: 'Text', text: /creates/ })).toBe(undefined)
+
+  await $.ui.input({ plugin: 'workbench', key: 'add-item', text: 'New thing\nIts brief.' })
+  expect(files.get(`${EMPTY}/.claude/features.md`)).toBe('# Features\n\n- [ ] New thing\n  Its brief.\n')
+  expect((await ui.find({ type: 'Text', text: /New thing/ }))?.text).toBe('New thing')
+  expect(await ui.find({ type: 'Text', text: /Add to/ })).toBe(undefined)
+
+  await ui.press({ key: 'add-open' })
+  await ui.press({ key: `add-to-${REPO}` })
+  await $.ui.input({ plugin: 'workbench', key: 'add-item', text: 'Retry stuck requests' })
+  expect(files.get(`${REPO}/.claude/features.md`)).toBe(FEATURES)
+  expect((await ui.find({ type: 'Text', text: /already has/ }))?.text).toBe(
+    'stack already has "Retry stuck requests".',
+  )
+
+  await ui.press({ key: `draft-${REPO}` })
+  expect(prompts[0]).toContain(`${REPO}/.claude/features.md`)
+  expect(await ui.find({ type: 'Text', text: /Add to/ })).toBe(undefined)
+  await ui.unmount()
+})
+
+test('Done marks an item [x] and Remove, pressed twice, deletes it with its brief', async ($, on) => {
+  mock.clock(on)
+  const file = `${REPO}/.claude/features.md`
+  const list = ['# Features', '', '- [ ] Retry stuck requests', '  Add a retry action.', '- [ ] Second item', '  Its brief.', '- [x] Old thing', ''].join('\n')
+  const files = new Map<string, string>([[file, list]])
+  const store = new Map<string, unknown>()
+  const empty = { exitCode: 0, stdout: '{"data":{}}', stderr: '', isStdoutTruncated: false, isStderrTruncated: false }
+
+  on('command.register', () => ({ value: { command: 'workbench' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('store.get', (_, e) => ({ value: store.get(e.key) }))
+  on('store.set', (_, e) => {
+    store.set(e.key, e.value)
+
+    return { value: undefined }
+  })
+  on('fs.exists', (_, e) => ({ value: e.path === `${REPO}/.git` || files.has(e.path) }))
+  on('fs.list', (_, e) => ({
+    value:
+      e.path === '/home/me/repositories'
+        ? [{ name: 'personal', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }]
+        : e.path === '/home/me/repositories/personal'
+          ? [{ name: 'stack', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }]
+          : [],
+  }))
+  on('fs.read', (_, e) => ({ value: files.get(e.path) ?? '' }))
+  on('fs.write', (_, e) => {
+    files.set(e.path, e.text)
+
+    return { value: undefined }
+  })
+  on('process.run', () => ({ value: empty }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: `expand-next-${REPO}#retry-stuck-requests` })
+    expect((await ui.find({ key: `done-${REPO}#retry-stuck-requests` }))?.text).toBe('Done')
+    expect((await ui.find({ key: `remove-${REPO}#retry-stuck-requests` }))?.text).toBe('Remove')
+    await ui.press({ key: `expand-next-${REPO}#retry-stuck-requests` })
+    await ui.unmount()
+  }
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: `expand-next-${REPO}#retry-stuck-requests` })
+  await ui.press({ key: `done-${REPO}#retry-stuck-requests` })
+  expect(files.get(file)).toBe(list.replace('- [ ] Retry', '- [x] Retry'))
+  expect(await ui.find({ type: 'Text', text: /Retry stuck requests/ })).toBe(undefined)
+
+  // Started first, so Remove from In progress also forgets the start.
+  await ui.press({ key: `expand-next-${REPO}#second-item` })
+  await ui.press({ key: `start-${REPO}#second-item` })
+  expect(Object.keys(store.get('started') as object)).toEqual([`${REPO}#second-item`])
+  await ui.press({ key: `expand-going-${REPO}#second-item` })
+  await ui.press({ key: `remove-${REPO}#second-item` })
+  expect(files.get(file)).toBe(list.replace('- [ ] Retry', '- [x] Retry'))
+  expect((await ui.find({ key: `remove-${REPO}#second-item` }))?.text).toBe('Really remove')
+
+  await ui.press({ key: `remove-${REPO}#second-item` })
+  expect(files.get(file)).toBe(['# Features', '', '- [x] Retry stuck requests', '  Add a retry action.', '- [x] Old thing', ''].join('\n'))
+  expect(await ui.find({ type: 'Text', text: /Second item/ })).toBe(undefined)
+  expect(store.get('started')).toEqual({})
   await ui.unmount()
 })

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { parseFeatures, slug } from './features'
+import { appendFeature, markDone, parseFeatures, parseItemInput, removeFeature, slug } from './features'
 import { parsePrs, searchArgv } from './github'
 import { parseRoots, remoteSlug } from './repos'
 
@@ -31,6 +31,54 @@ test('a features list reads items, briefs and done marks', async () => {
 
 test('a slug keeps letters and digits only', async () => {
   expect(slug('  Add #88: PR screenshots!  ')).toBe('add-88-pr-screenshots')
+})
+
+test('the Add field reads a title, then a brief', async () => {
+  expect(parseItemInput('Retry stuck requests')).toEqual({ title: 'Retry stuck requests', brief: '' })
+  expect(parseItemInput('  Retry  \n\n  Over a day.\n  Only /requests/. \n')).toEqual({
+    title: 'Retry',
+    brief: 'Over a day.\nOnly /requests/.',
+  })
+  expect(parseItemInput(' \n \n')).toBe(null)
+})
+
+test('an item is appended where parseFeatures reads it', async () => {
+  expect(appendFeature(null, 'Retry', 'Over a day.\nOnly /requests/.')).toBe(
+    '# Features\n\n- [ ] Retry\n  Over a day.\n  Only /requests/.\n',
+  )
+  expect(appendFeature('# Features\n', 'Retry', '')).toBe('# Features\n\n- [ ] Retry\n')
+  expect(appendFeature('- [ ] Old', 'New', '')).toBe('- [ ] Old\n- [ ] New\n')
+  expect(appendFeature('- [x] Old\n', 'New', '')).toBe('- [x] Old\n- [ ] New\n')
+
+  const text = appendFeature('# Features\n\n- [ ] Old\n  Its brief.\n', 'New', 'Two\nlines')
+  expect(parseFeatures(text).map(f => [f.title, f.brief])).toEqual([
+    ['Old', 'Its brief.'],
+    ['New', 'Two\nlines'],
+  ])
+})
+
+test('Done marks an open item [x], Remove drops it with its brief', async () => {
+  const text = [
+    '# Features',
+    '',
+    '- [x] Retry',
+    '- [ ] Retry',
+    '  First line.',
+    '',
+    '  After a blank.',
+    '* [ ] Next',
+    '  Its brief.',
+    'Prose.',
+  ].join('\n')
+
+  expect(markDone(text, 'retry')?.split('\n').slice(2, 4)).toEqual(['- [x] Retry', '- [x] Retry'])
+  expect(markDone(text, 'next')?.split('\n')[7]).toBe('* [x] Next')
+  expect(removeFeature(text, 'retry')).toBe(
+    ['# Features', '', '- [x] Retry', '* [ ] Next', '  Its brief.', 'Prose.'].join('\n'),
+  )
+  expect(removeFeature(text, 'next')?.split('\n').slice(-2)).toEqual(['  After a blank.', 'Prose.'])
+  expect(markDone(text, 'missing')).toBe(null)
+  expect(removeFeature('- [x] Retry\n', 'retry')).toBe(null)
 })
 
 test('roots expand ~ and drop blanks and trailing slashes', async () => {

@@ -2,7 +2,8 @@ export type Feature = { id: string; title: string; brief: string; isDone: boolea
 
 export type RepoFeature = Feature & { repoPath: string }
 
-export type Repo = { path: string; name: string; slug: string | null }
+// `hasList`: the repo has a `.claude/features.md`, even an empty one.
+export type Repo = { path: string; name: string; slug: string | null; hasList: boolean }
 
 export type Ci = 'passing' | 'failing' | 'pending' | null
 
@@ -32,6 +33,13 @@ declare module 'claude-code' {
       // A repo's name, or 'all'.
       filter: string
       isShippedOpen: boolean
+      // The Add form: null closed, `repoPath` null while a repo is picked.
+      adding: { repoPath: string | null } | null
+      // The item whose Remove was pressed once, by its started key; a second
+      // press removes it.
+      removing: string | null
+      // The row whose details are open, by its key; one at a time.
+      expanded: string | null
     }
   }
 }

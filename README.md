@@ -5,7 +5,13 @@ the chat that shows, across every repository on this machine:
 
 - **Up next**: the open items of each repo's `.claude/features.md`, with a
   **Start** button that has Claude start a session for one, in that repo, in its own
-  worktree.
+  worktree. **Add** opens a form for a repo (the filtered one, or one you pick):
+  type a title, and a brief on the lines below, and Enter adds it to that repo's
+  list. **Create empty list** starts one for a repo that has none, and **Draft with
+  Claude** has Claude read the repo and propose items, which it writes once you
+  agree. Each row is one line; its **▸** opens the brief and buttons beneath it,
+  where **Done** marks the item `[x]` and **Remove**, pressed twice, deletes it and
+  its brief.
 - **In progress**: items you started, and your open PRs with their CI state.
 - **Needs your review**: PRs where your review is requested, with a **Review**
   button that has Claude start a review session.
@@ -27,7 +33,9 @@ Every two minutes, and on **Refresh**, it:
 A plugin cannot open a desktop session itself, so **Start** and **Review** send the
 session the pane sits in a prompt (`hooks/prompts.ts`), and Claude starts the
 session. Which items you started is kept in the plugin's own store, not in
-`features.md`, so starting work never leaves a change in a repo's checkout.
+`features.md`, so starting work never leaves a change in a repo's checkout. The
+only file the pane writes is a repo's `.claude/features.md`, and only from Add,
+Create empty list, Done and Remove.
 
 It needs `gh`, signed in (`gh auth status`).
 

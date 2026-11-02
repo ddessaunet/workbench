@@ -16,6 +16,19 @@ export function startPrompt(feature: Feature, repo: Repo): string {
   ].join('\n')
 }
 
+export function draftPrompt(repo: Repo): string {
+  const file = `${repo.path}/.claude/features.md`
+
+  return [
+    `Draft a feature list for ${repo.path}, here in this session; don't start a new one.`,
+    "Read its README, CLAUDE.md, TODO and FIXME comments, and its open issues (gh issue list),",
+    'and propose items as a markdown checklist: `- [ ] Title`, with a short brief on the',
+    'indented lines below each one. Show me the items first. Once I agree, add the ones I',
+    `keep to the end of ${file} (create it with a "# Features" heading if it is missing),`,
+    'leaving the items already there untouched.',
+  ].join('\n')
+}
+
 export function reviewPrompt(pr: Pr, repo: Repo | undefined): string {
   const where = repo ? `, in ${repo.path}` : ''
 

@@ -1,10 +1,18 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 import type { Pr, Repo, RepoFeature } from '../types'
-import { parseFeatures } from './features'
+import {
+  appendFeature,
+  markDone,
+  NEW_LIST,
+  parseFeatures,
+  parseItemInput,
+  removeFeature,
+  slug,
+} from './features'
 import { parsePrs, searchArgv } from './github'
-import { reviewPrompt, startPrompt } from './prompts'
+import { draftPrompt, reviewPrompt, startPrompt } from './prompts'
 import { parseRoots, remoteSlug } from './repos'
 
 const PANE = 'workbench'
@@ -20,6 +28,9 @@ const isRefreshing = atom({ plugin: 'workbench', key: 'isRefreshing' } as const,
 const error = atom({ plugin: 'workbench', key: 'error' } as const, null)
 const filter = atom({ plugin: 'workbench', key: 'filter' } as const, 'all')
 const isShippedOpen = atom({ plugin: 'workbench', key: 'isShippedOpen' } as const, false)
+const adding = atom({ plugin: 'workbench', key: 'adding' } as const, null)
+const removing = atom({ plugin: 'workbench', key: 'removing' } as const, null)
+const expanded = atom({ plugin: 'workbench', key: 'expanded' } as const, null)
 
 function startedKey(feature: RepoFeature): string {
   return `${feature.repoPath}#${feature.id}`
@@ -27,6 +38,14 @@ function startedKey(feature: RepoFeature): string {
 
 function repoName(slug: string): string {
   return slug.slice(slug.indexOf('/') + 1)
+}
+
+function listFile(repo: Pick<Repo, 'path'>): string {
+  return `${repo.path}/.claude/features.md`
+}
+
+function message(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 function ago(then: number | null, now: number): string {
@@ -81,6 +100,7 @@ async function findRepos($: EngineInterface, roots: string[]): Promise<Repo[]> {
       path,
       name: path.slice(path.lastIndexOf('/') + 1),
       slug: remote.exitCode === 0 ? remoteSlug(remote.stdout) : null,
+      hasList: await $.fs.exists(listFile({ path })),
     })
   }
 
@@ -90,9 +110,8 @@ async function findRepos($: EngineInterface, roots: string[]): Promise<Repo[]> {
 async function loadFeatures($: EngineInterface, list: Repo[]): Promise<RepoFeature[]> {
   const found: RepoFeature[] = []
   for (const repo of list) {
-    const file = `${repo.path}/.claude/features.md`
-    if (!(await $.fs.exists(file))) continue
-    const text = await $.fs.read(file)
+    if (!repo.hasList) continue
+    const text = await $.fs.read(listFile(repo))
     for (const feature of parseFeatures(typeof text === 'string' ? text : '')) {
       found.push({ ...feature, repoPath: repo.path })
     }
@@ -123,7 +142,7 @@ async function refresh($: EngineInterface, roots: string): Promise<void> {
       await update($, error, () => `gh: ${reason}`)
     }
   } catch (err) {
-    await update($, error, () => (err instanceof Error ? err.message : String(err)))
+    await update($, error, () => message(err))
   } finally {
     const now = await $.clock.now()
     await update($, refreshedAt, () => now)
@@ -154,6 +173,96 @@ async function review($: EngineInterface, pr: Pr): Promise<void> {
   await $.prompt.submit({ text: reviewPrompt(pr, repo) })
 }
 
+// With the filter on one repo, Add goes straight to its form; else to the picker.
+async function openAdd($: EngineInterface, shown: string): Promise<void> {
+  const repo = (await read($, repos)).find(one => one.name === shown)
+  await update($, adding, () => ({ repoPath: repo?.path ?? null }))
+}
+
+// Reads one repo's list again after the pane wrote it, keeping the repos' order.
+async function reloadRepo($: EngineInterface, repo: Repo): Promise<void> {
+  const listed = { ...repo, hasList: true }
+  const list = await loadFeatures($, [listed])
+  const all = await update($, repos, held => held.map(one => (one.path === repo.path ? listed : one)))
+  await update($, features, held =>
+    all.flatMap(one => (one.path === repo.path ? list : held.filter(f => f.repoPath === one.path))),
+  )
+}
+
+// The one write the pane makes into a repo: an item at the end of its list.
+async function addItem($: EngineInterface, repo: Repo, value: string): Promise<void> {
+  const item = parseItemInput(value)
+  if (!item) {
+    await update($, error, () => 'Add: the first line is the title, and it is empty.')
+    return
+  }
+  const id = slug(item.title)
+  if ((await read($, features)).some(f => f.repoPath === repo.path && f.id === id)) {
+    await update($, error, () => `${repo.name} already has "${item.title}".`)
+    return
+  }
+
+  try {
+    const file = listFile(repo)
+    const text = (await $.fs.exists(file)) ? await $.fs.read(file) : null
+    await $.fs.write(file, appendFeature(text, item.title, item.brief))
+    await reloadRepo($, repo)
+    await update($, adding, () => null)
+    await update($, error, () => null)
+  } catch (err) {
+    await update($, error, () => message(err))
+  }
+}
+
+// Done and Remove rewrite the item in its repo's list, then forget it was started.
+async function editItem(
+  $: EngineInterface,
+  feature: RepoFeature,
+  edit: (text: string, id: string) => string | null,
+): Promise<void> {
+  const repo = (await read($, repos)).find(one => one.path === feature.repoPath)
+  if (!repo) return
+
+  try {
+    const next = edit(await $.fs.read(listFile(repo)), feature.id)
+    if (next === null) {
+      await update($, error, () => `"${feature.title}" is no longer open in ${repo.name}'s list.`)
+    } else {
+      await $.fs.write(listFile(repo), next)
+    }
+    await reloadRepo($, repo)
+    await update($, removing, () => null)
+    await unstart($, feature)
+  } catch (err) {
+    await update($, error, () => message(err))
+  }
+}
+
+// Remove asks for a second press before it deletes the item and its brief.
+async function remove($: EngineInterface, feature: RepoFeature): Promise<void> {
+  const key = startedKey(feature)
+  if ((await read($, removing)) !== key) {
+    await update($, removing, () => key)
+    return
+  }
+  await editItem($, feature, removeFeature)
+}
+
+async function createList($: EngineInterface, repo: Repo): Promise<void> {
+  try {
+    const file = listFile(repo)
+    if (!(await $.fs.exists(file))) await $.fs.write(file, NEW_LIST)
+    await reloadRepo($, repo)
+  } catch (err) {
+    await update($, error, () => message(err))
+  }
+}
+
+async function draft($: EngineInterface, repo: Repo): Promise<void> {
+  await $.prompt.submit({ text: draftPrompt(repo) })
+  await update($, adding, () => null)
+}
+
 export const register: Register = (on, options) => {
   const roots = typeof options.roots === 'string' ? options.roots : '~/repositories'
   const minutes = typeof options.refresh_minutes === 'number' ? options.refresh_minutes : 2
@@ -182,7 +291,13 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Link } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Text, Button, Link } = elements
+    // The mobile app draws no fields (its elements still name them, drawing
+    // nothing): it gets the filter as buttons, and no Add field.
+    const hasFields = e.surface !== 'mobile'
+    const Select = hasFields && 'Select' in elements ? elements.Select : undefined
+    const Input = hasFields && 'Input' in elements ? elements.Input : undefined
     const now = await $.clock.now()
     const repoList = await read($, repos)
     const shown = await read($, filter)
@@ -190,6 +305,10 @@ export const register: Register = (on, options) => {
     const lists = await read($, prs)
     const problem = await read($, error)
     const isShipped = await read($, isShippedOpen)
+    const form = await read($, adding)
+    const removingKey = await read($, removing)
+    const openRow = await read($, expanded)
+    const addTo = form?.repoPath ? repoList.find(repo => repo.path === form.repoPath) : undefined
 
     const nameOf = (path: string) => repoList.find(repo => repo.path === path)?.name ?? path
     const inFilter = (name: string) => shown === 'all' || shown === name
@@ -201,8 +320,12 @@ export const register: Register = (on, options) => {
     const shipped = (lists?.merged ?? []).filter(pr => inFilter(repoName(pr.repo)))
 
     const names = new Set<string>()
-    for (const f of await read($, features)) names.add(nameOf(f.repoPath))
+    for (const repo of repoList) if (repo.hasList) names.add(repo.name)
     for (const pr of [...(lists?.mine ?? []), ...(lists?.review ?? [])]) names.add(repoName(pr.repo))
+    // A filtered repo that has since gone stays pickable, so the filter shows the truth.
+    if (shown !== 'all') names.add(shown)
+    const filterNames = ['all', ...[...names].sort()]
+    const filterLabel = (name: string) => (name === 'all' ? 'All repos' : name)
 
     const header = (label: string, count: number) => (
       <Box marginTop={1}>
@@ -211,77 +334,221 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    const ciText = (pr: Pr) =>
+    const itemButtons = (f: RepoFeature) => (
+      <Box columnGap={1}>
+        <Button key={`done-${startedKey(f)}`} label="Done" dimColor onPress={() => editItem($, f, markDone)} />
+        <Button
+          key={`remove-${startedKey(f)}`}
+          label={removingKey === startedKey(f) ? 'Really remove' : 'Remove'}
+          dimColor={removingKey !== startedKey(f)}
+          onPress={() => remove($, f)}
+        />
+      </Box>
+    )
+
+    const ciMark = (pr: Pr) =>
       pr.isDraft ? <Text dimColor>draft</Text>
-      : pr.ci === 'passing' ? <Text color="success">CI passing</Text>
-      : pr.ci === 'failing' ? <Text color="error">CI failing</Text>
-      : pr.ci === 'pending' ? <Text color="warning">CI running</Text>
-      : <Text dimColor>no CI</Text>
+      : pr.ci === 'passing' ? <Text color="success">✓</Text>
+      : pr.ci === 'failing' ? <Text color="error">✗</Text>
+      : pr.ci === 'pending' ? <Text color="warning">●</Text>
+      : null
+
+    // With one repo picked, every row is in it: the repo name says nothing.
+    const isFiltered = shown !== 'all'
+    const prLabel = (pr: Pr) => (isFiltered ? `#${pr.number}` : `${repoName(pr.repo)}#${pr.number}`)
+
+    // A PR row leads with its link, in a column as wide as the widest drawn,
+    // so the titles after it line up.
+    const drawnPrs = [...mine.slice(0, ROWS), ...toReview.slice(0, ROWS), ...(isShipped ? shipped.slice(0, ROWS) : [])]
+    const leadWidth = Math.max(0, ...drawnPrs.map(pr => prLabel(pr).length))
+    const prLead = (pr: Pr) => (
+      <Box width={leadWidth} flexShrink={0}>
+        <Link href={pr.url} label={prLabel(pr)} />
+      </Box>
+    )
+
+    // One line per row, whatever the width: the lead, the title in what is
+    // left, the status, and a toggle when the row has details. Pressed, the
+    // details open beneath it, one row at a time.
+    const row = (
+      key: string,
+      lead: RenderElement | null,
+      title: string,
+      status: RenderElement | null,
+      details: RenderElement | null,
+      isDim = false,
+    ) => {
+      const isOpen = details !== null && openRow === key
+
+      return (
+        <Box key={key} flexDirection="column">
+          <Box columnGap={1}>
+            {lead}
+            <Box flexGrow={1} flexShrink={1}>
+              <Text dimColor={isDim} wrap="truncate-end">{title}</Text>
+            </Box>
+            {status}
+            {details && (
+              <Button
+                key={`expand-${key}`}
+                label={isOpen ? '▾' : '▸'}
+                dimColor={!isOpen}
+                onPress={() => update($, expanded, held => (held === key ? null : key))}
+              />
+            )}
+          </Box>
+          {isOpen && <Box paddingLeft={2}>{details}</Box>}
+        </Box>
+      )
+    }
+
+    // A feature's details: its brief, then where it is and what to do with it.
+    const featureDetails = (f: RepoFeature, actions: RenderElement) => (
+      <Box flexDirection="column">
+        {f.brief ? <Text wrap="wrap">{f.brief}</Text> : <Text dimColor>No brief yet.</Text>}
+        <Box columnGap={1} flexWrap="wrap">
+          {!isFiltered && <Text dimColor>{nameOf(f.repoPath)}</Text>}
+          {actions}
+        </Box>
+      </Box>
+    )
 
     return (
       <Box flexDirection="column">
-        <Box flexWrap="wrap" columnGap={1}>
-          {['all', ...[...names].sort()].map(name => (
-            <Button
-              key={`filter-${name}`}
-              label={name === 'all' ? 'All repos' : name}
-              dimColor={shown !== name}
-              onPress={() => update($, filter, () => name)}
-            />
-          ))}
-        </Box>
-
-        {header('Up next', upNext.length)}
-        {upNext.length === 0 && (
-          <Text dimColor>Nothing queued. Add items to a repo's .claude/features.md.</Text>
-        )}
-        {upNext.slice(0, ROWS).map(f => (
-          <Box key={`next-${startedKey(f)}`} columnGap={1}>
-            <Box flexGrow={1} flexShrink={1}>
-              <Text wrap="truncate-end">{f.title}</Text>
-            </Box>
-            <Text dimColor>{nameOf(f.repoPath)}</Text>
-            <Button key={`start-${startedKey(f)}`} label="Start" onPress={() => start($, f)} />
+        {Select ? (
+          <Select
+            key="filter"
+            label="Repo"
+            options={filterNames.map(name => ({ value: name, label: filterLabel(name) }))}
+            value={shown}
+            onSelect={value => update($, filter, () => value)}
+          />
+        ) : (
+          <Box flexWrap="wrap" columnGap={1}>
+            {filterNames.map(name => (
+              <Button
+                key={`filter-${name}`}
+                label={filterLabel(name)}
+                dimColor={shown !== name}
+                onPress={() => update($, filter, () => name)}
+              />
+            ))}
           </Box>
-        ))}
+        )}
+
+        <Box marginTop={1} columnGap={1}>
+          <Text bold>Up next </Text>
+          <Text dimColor>{upNext.length}</Text>
+          <Button key="add-open" label="Add" dimColor onPress={() => openAdd($, shown)} />
+        </Box>
+        {form && !addTo && (
+          <Box flexWrap="wrap" columnGap={1}>
+            <Text dimColor>Add to</Text>
+            {[...repoList]
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map(repo => (
+                <Button
+                  key={`add-to-${repo.path}`}
+                  label={repo.hasList ? repo.name : `${repo.name} (new)`}
+                  onPress={() => update($, adding, () => ({ repoPath: repo.path }))}
+                />
+              ))}
+            <Button key="add-cancel" label="Cancel" dimColor onPress={() => update($, adding, () => null)} />
+          </Box>
+        )}
+        {addTo && (
+          <Box flexDirection="column">
+            <Box columnGap={1}>
+              <Text>{`Add to ${addTo.name}`}</Text>
+              {!addTo.hasList && <Text dimColor>creates .claude/features.md</Text>}
+            </Box>
+            {Input ? (
+              <Input
+                key="add-item"
+                rows={3}
+                autoFocus
+                submitLabel="add"
+                placeholder="Title, then the brief on the lines below"
+                onSubmit={value => addItem($, addTo, value)}
+              />
+            ) : (
+              <Text dimColor>Typing an item needs the desktop app or a terminal.</Text>
+            )}
+            <Box columnGap={1}>
+              <Button key={`draft-${addTo.path}`} label="Draft with Claude" onPress={() => draft($, addTo)} />
+              {!addTo.hasList && (
+                <Button
+                  key={`create-${addTo.path}`}
+                  label="Create empty list"
+                  onPress={() => createList($, addTo)}
+                />
+              )}
+              <Button key="add-cancel" label="Cancel" dimColor onPress={() => update($, adding, () => null)} />
+            </Box>
+          </Box>
+        )}
+        {upNext.length === 0 && <Text dimColor>Nothing queued. Press Add to queue one.</Text>}
+        {upNext.slice(0, ROWS).map(f =>
+          row(
+            `next-${startedKey(f)}`,
+            null,
+            f.title,
+            null,
+            featureDetails(
+              f,
+              <Box columnGap={1}>
+                <Button key={`start-${startedKey(f)}`} label="Start" onPress={() => start($, f)} />
+                {itemButtons(f)}
+              </Box>,
+            ),
+          ),
+        )}
 
         {header('In progress', going.length + mine.length)}
-        {going.map(f => (
-          <Box key={`going-${startedKey(f)}`} columnGap={1}>
-            <Box flexGrow={1} flexShrink={1}>
-              <Text wrap="truncate-end">{f.title}</Text>
-            </Box>
-            <Text dimColor>started {ago(startedMap[startedKey(f)] ?? null, now)}</Text>
-            <Button
-              key={`unstart-${startedKey(f)}`}
-              label="Back to queue"
-              dimColor
-              onPress={() => unstart($, f)}
-            />
-          </Box>
-        ))}
-        {mine.slice(0, ROWS).map(pr => (
-          <Box key={`mine-${pr.url}`} columnGap={1}>
-            <Link href={pr.url} label={`${repoName(pr.repo)}#${pr.number}`} />
-            <Box flexGrow={1} flexShrink={1}>
-              <Text wrap="truncate-end">{pr.title}</Text>
-            </Box>
-            {ciText(pr)}
-          </Box>
-        ))}
+        {going.map(f =>
+          row(
+            `going-${startedKey(f)}`,
+            null,
+            f.title,
+            <Text dimColor>{ago(startedMap[startedKey(f)] ?? null, now)}</Text>,
+            featureDetails(
+              f,
+              <Box columnGap={1}>
+                <Button
+                  key={`unstart-${startedKey(f)}`}
+                  label="Back to queue"
+                  dimColor
+                  onPress={() => unstart($, f)}
+                />
+                {itemButtons(f)}
+              </Box>,
+            ),
+          ),
+        )}
+        {mine.slice(0, ROWS).map(pr =>
+          row(
+            `mine-${pr.url}`,
+            prLead(pr),
+            pr.title,
+            ciMark(pr),
+            null,
+          ),
+        )}
 
         {header('Needs your review', toReview.length)}
         {toReview.length === 0 && <Text dimColor>No review requests.</Text>}
-        {toReview.slice(0, ROWS).map(pr => (
-          <Box key={`review-${pr.url}`} columnGap={1}>
-            <Link href={pr.url} label={`${repoName(pr.repo)}#${pr.number}`} />
-            <Box flexGrow={1} flexShrink={1}>
-              <Text wrap="truncate-end">{pr.title}</Text>
-            </Box>
-            <Text dimColor>{pr.author}</Text>
-            <Button key={`do-review-${pr.url}`} label="Review" onPress={() => review($, pr)} />
-          </Box>
-        ))}
+        {toReview.slice(0, ROWS).map(pr =>
+          row(
+            `review-${pr.url}`,
+            prLead(pr),
+            pr.title,
+            null,
+            <Box columnGap={1}>
+              <Text dimColor>{pr.author}</Text>
+              <Button key={`do-review-${pr.url}`} label="Review" onPress={() => review($, pr)} />
+            </Box>,
+          ),
+        )}
 
         <Box marginTop={1} columnGap={1}>
           <Text bold>Shipped this week </Text>
@@ -294,14 +561,16 @@ export const register: Register = (on, options) => {
           />
         </Box>
         {isShipped &&
-          shipped.slice(0, ROWS).map(pr => (
-            <Box key={`shipped-${pr.url}`} columnGap={1}>
-              <Link href={pr.url} label={`${repoName(pr.repo)}#${pr.number}`} />
-              <Box flexGrow={1} flexShrink={1}>
-                <Text dimColor wrap="truncate-end">{pr.title}</Text>
-              </Box>
-            </Box>
-          ))}
+          shipped.slice(0, ROWS).map(pr =>
+            row(
+              `shipped-${pr.url}`,
+              prLead(pr),
+              pr.title,
+              null,
+              null,
+              true,
+            ),
+          )}
 
         <Box marginTop={1} columnGap={1}>
           <Text dimColor>
