@@ -293,24 +293,41 @@ async function draft($: EngineInterface, repo: Repo): Promise<void> {
   await update($, adding, () => null)
 }
 
+// The pane opens and polling starts once per load, when something can draw
+// it. A reload starts over, its timers dropped with the old module.
+let hasBegun = false
+
+async function begin($: EngineInterface, roots: string, minutes: number): Promise<void> {
+  if (hasBegun) return
+  hasBegun = true
+  const kept = await $.store.get('started')
+  if (kept && typeof kept === 'object') {
+    await update($, started, () => kept as Record<string, number>)
+  }
+  void $.ui.open({ id: PANE, title: 'Workbench' })
+  void refresh($, roots)
+  $.clock.every(Math.max(1, minutes) * 60000, () => void refresh($, roots))
+}
+
 export const register: Register = (on, options) => {
   const roots = typeof options.roots === 'string' ? options.roots : '~/repositories'
   const minutes = typeof options.refresh_minutes === 'number' ? options.refresh_minutes : 2
 
   on('session.start', async ($, e, next) => {
-    // A `-p` run or the SDK has no one to look at the pane: no scans, no polling.
-    if (!e.isInteractive) return next(e)
     await $.command.register({
       name: 'workbench',
       description: 'Open the workbench pane: features, your PRs and review requests',
     })
-    const kept = await $.store.get('started')
-    if (kept && typeof kept === 'object') {
-      await update($, started, () => kept as Record<string, number>)
-    }
-    void $.ui.open({ id: PANE, title: 'Workbench' })
-    void refresh($, roots)
-    $.clock.every(Math.max(1, minutes) * 60000, () => void refresh($, roots))
+    // The desktop app hosts the session as the SDK does, so isInteractive is
+    // false there: its surface attaches after the start, or already has when a
+    // reload runs this again. A `-p` run has neither: no scans, no polling.
+    if (e.isInteractive || (await $.session.surfaces()).length > 0) await begin($, roots, minutes)
+
+    return next(e)
+  })
+
+  on('session.attach', async ($, e, next) => {
+    await begin($, roots, minutes)
 
     return next(e)
   })
