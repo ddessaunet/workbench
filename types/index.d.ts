@@ -39,6 +39,9 @@ declare module 'claude-code' {
       // The item whose Remove was pressed once, by its started key; a second
       // press removes it.
       removing: string | null
+      // Your PR whose Merge was pressed once, by its URL; a second
+      // press merges it.
+      merging: string | null
       // The row whose details are open, by its key; one at a time.
       expanded: string | null
     }

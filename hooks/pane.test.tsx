@@ -115,8 +115,6 @@ test('the pane lists features, PRs and reviews, and Start hands Claude a prompt'
     expect((await ui.find({ key: `start-${REPO}#retry-stuck-requests` }))?.text).toBe('Start')
     await ui.press({ key: `expand-next-${REPO}#retry-stuck-requests` })
     expect(await ui.find({ key: `start-${REPO}#retry-stuck-requests` })).toBe(undefined)
-    // Your PR has nothing more to show: no toggle.
-    expect(await ui.find({ key: 'expand-mine-https://github.com/me/stack/pull/86' })).toBe(undefined)
     // The PR's link leads, in a column as wide as the widest label (portal#12).
     const mine = await ui.find({ key: 'mine-https://github.com/me/stack/pull/86' })
     expect(mine?.text.startsWith('stack#86')).toBe(true)
@@ -272,6 +270,17 @@ test('Done marks an item [x] and Remove, pressed twice, deletes it with its brie
   on('prompt.submit', (_, e) => ({ text: e.text }))
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  // A heavy rule under each of the four headers, a faint one between the two
+  // queued items: characters on the terminal, drawings on the desktop.
+  const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await terminal.findAll({ type: 'Text', text: '━'.repeat(60) })).toHaveLength(4)
+  expect(await terminal.findAll({ type: 'Text', text: '─'.repeat(60) })).toHaveLength(1)
+  await terminal.unmount()
+  const desktop = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const rules = await desktop.findAll({ type: 'Svg' })
+  expect(rules.map(svg => svg.props.height)).toEqual([2, 1, 2, 2, 2])
+  await desktop.unmount()
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -469,5 +478,72 @@ test('one repo that cannot be read leaves the others and GitHub shown', async ($
   expect((await ui.find({ type: 'Text', text: /^broken: / }))?.text).toMatch(
     /^broken: .*git would not start.* \(\+1 more\)$/,
   )
+  await ui.unmount()
+})
+
+test('your PR has Merge where another\'s has Review; pressed twice, it merges the way its repo allows', async ($, on) => {
+  mock.clock(on)
+  const runs: string[][] = []
+  let mergeFails = false
+
+  on('command.register', () => ({ value: { command: 'workbench' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('store.get', () => ({ value: undefined }))
+  on('fs.exists', () => ({ value: false }))
+  on('fs.list', () => ({ value: [] }))
+  on('process.run', (_, e) => {
+    runs.push([...e.argv])
+    if (e.argv[1] === 'repo') {
+      return { value: ran(JSON.stringify({ squashMergeAllowed: false, mergeCommitAllowed: true, rebaseMergeAllowed: true })) }
+    }
+    if (e.argv[1] === 'pr') {
+      return { value: mergeFails ? { ...ran(''), exitCode: 1, stderr: 'Pull request is not mergeable\n' } : ran('') }
+    }
+
+    return { value: ran(GH) }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const URL = 'https://github.com/me/stack/pull/86'
+  const REVIEW = 'https://github.com/team/portal/pull/12'
+  const merges = () => runs.filter(argv => argv[1] === 'pr')
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    runs.length = 0
+    const ui = await $.ui.mount({ ...PANE, surface })
+    // Another's PR is reviewed, not merged.
+    await ui.press({ key: `expand-review-${REVIEW}` })
+    expect((await ui.find({ key: `do-review-${REVIEW}` }))?.text).toBe('Review')
+    expect(await ui.find({ key: `merge-${REVIEW}` })).toBe(undefined)
+    await ui.press({ key: `expand-review-${REVIEW}` })
+
+    // Yours is merged, not reviewed.
+    await ui.press({ key: `expand-mine-${URL}` })
+    expect(await ui.find({ key: `do-review-${URL}` })).toBe(undefined)
+    expect((await ui.find({ key: `merge-${URL}` }))?.text).toBe('Merge')
+
+    await ui.press({ key: `merge-${URL}` })
+    expect((await ui.find({ key: `merge-${URL}` }))?.text).toBe('Really merge')
+    expect(merges()).toEqual([])
+
+    await ui.press({ key: `merge-${URL}` })
+    expect(merges()).toEqual([['gh', 'pr', 'merge', URL, '--merge']])
+    // Then the lists are read again.
+    expect(runs.at(-1)?.[2]).toBe('graphql')
+    await ui.press({ key: `expand-mine-${URL}` })
+    await ui.unmount()
+  }
+
+  // GitHub's refusal is shown, and nothing is refreshed for it.
+  mergeFails = true
+  runs.length = 0
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: `expand-mine-${URL}` })
+  await ui.press({ key: `merge-${URL}` })
+  await ui.press({ key: `merge-${URL}` })
+  expect(runs.at(-1)?.[1]).toBe('pr')
+  expect(await ui.find({ type: 'Text', text: /Merge me\/stack#86: Pull request is not mergeable/ })).toBeTruthy()
   await ui.unmount()
 })

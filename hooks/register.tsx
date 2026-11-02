@@ -11,7 +11,7 @@ import {
   removeFeature,
   slug,
 } from './features'
-import { parsePrs, searchArgv } from './github'
+import { mergeArgv, mergeMethod, mergeSettingsArgv, parsePrs, searchArgv } from './github'
 import { draftPrompt, reviewPrompt, startPrompt } from './prompts'
 import { parseRoots, remoteSlug } from './repos'
 
@@ -33,6 +33,7 @@ const filter = atom({ plugin: 'workbench', key: 'filter' } as const, 'all')
 const isShippedOpen = atom({ plugin: 'workbench', key: 'isShippedOpen' } as const, false)
 const adding = atom({ plugin: 'workbench', key: 'adding' } as const, null)
 const removing = atom({ plugin: 'workbench', key: 'removing' } as const, null)
+const merging = atom({ plugin: 'workbench', key: 'merging' } as const, null)
 const expanded = atom({ plugin: 'workbench', key: 'expanded' } as const, null)
 
 function startedKey(feature: RepoFeature): string {
@@ -69,6 +70,19 @@ function ago(then: number | null, now: number): string {
 
   return minutes < 1 ? 'just now' : `${minutes} min ago`
 }
+
+// A Box draws no bottom border alone, so where the surface carries Svg a rule
+// is a drawing: wider than any pane, which the surface caps at its width.
+function svgRule(height: number, opacity: number): string {
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="${height}"`,
+    ` viewBox="0 0 2000 ${height}" preserveAspectRatio="none">`,
+    `<rect width="2000" height="${height}" fill="#808080" fill-opacity="${opacity}"/></svg>`,
+  ].join('')
+}
+
+const ROW_RULE = svgRule(1, 0.2)
+const SECTION_RULE = svgRule(2, 0.6)
 
 async function isRepo($: EngineInterface, path: string): Promise<boolean> {
   return $.fs.exists(`${path}/.git`)
@@ -199,6 +213,36 @@ async function unstart($: EngineInterface, feature: RepoFeature): Promise<void> 
 async function review($: EngineInterface, pr: Pr): Promise<void> {
   const repo = (await read($, repos)).find(one => one.slug === pr.repo)
   await $.prompt.submit({ text: reviewPrompt(pr, repo) })
+}
+
+// Merge asks for a second press, then merges the way the repo allows and
+// refreshes, so the row leaves once GitHub has it merged.
+async function merge($: EngineInterface, pr: Pr, roots: string): Promise<void> {
+  if ((await read($, merging)) !== pr.url) {
+    await update($, merging, () => pr.url)
+    return
+  }
+  await update($, merging, () => null)
+  const name = `${pr.repo}#${pr.number}`
+
+  try {
+    const settings = await $.process.run(mergeSettingsArgv(pr.repo), { timeoutMs: 30000 })
+    const method = settings.exitCode === 0 ? mergeMethod(settings.stdout) : null
+    if (!method) {
+      const why = settings.stderr.trim().split('\n')[0] || 'the repo allows no merge method'
+      await update($, error, () => `Merge ${name}: ${why}`)
+      return
+    }
+    const merged = await $.process.run(mergeArgv(pr.url, method), { timeoutMs: 60000 })
+    if (merged.exitCode !== 0) {
+      await update($, error, () => `Merge ${name}: ${merged.stderr.trim().split('\n')[0] || `exit ${merged.exitCode}`}`)
+      return
+    }
+  } catch (err) {
+    await update($, error, () => `Merge ${name}: ${message(err)}`)
+    return
+  }
+  await refresh($, roots)
 }
 
 // With the filter on one repo, Add goes straight to its form; else to the picker.
@@ -347,6 +391,8 @@ export const register: Register = (on, options) => {
     const hasFields = e.surface !== 'mobile'
     const Select = hasFields && 'Select' in elements ? elements.Select : undefined
     const Input = hasFields && 'Input' in elements ? elements.Input : undefined
+    // The terminal's table names Svg too, drawing nothing.
+    const Svg = e.surface !== 'terminal' && 'Svg' in elements ? elements.Svg : undefined
     const now = await $.clock.now()
     const repoList = await read($, repos)
     const shown = await read($, filter)
@@ -356,6 +402,7 @@ export const register: Register = (on, options) => {
     const isShipped = await read($, isShippedOpen)
     const form = await read($, adding)
     const removingKey = await read($, removing)
+    const mergingUrl = await read($, merging)
     const openRow = await read($, expanded)
     const addTo = form?.repoPath ? repoList.find(repo => repo.path === form.repoPath) : undefined
 
@@ -376,10 +423,23 @@ export const register: Register = (on, options) => {
     const filterNames = ['all', ...[...names].sort()]
     const filterLabel = (name: string) => (name === 'all' ? 'All repos' : name)
 
+    // A faint line between rows, a heavier one under a section's header; the
+    // terminal draws them in box-drawing characters across the pane.
+    const rule = (isSection: boolean) =>
+      Svg ? (
+        <Svg source={isSection ? SECTION_RULE : ROW_RULE} alt="" height={isSection ? 2 : 1} />
+      ) : (
+        <Text dimColor wrap="truncate-end">{(isSection ? '━' : '─').repeat(e.props.bodyColumns)}</Text>
+      )
+    const separated = (rows: RenderElement[]) => rows.flatMap((one, i) => (i === 0 ? [one] : [rule(false), one]))
+
     const header = (label: string, count: number) => (
-      <Box marginTop={1}>
-        <Text bold>{label} </Text>
-        <Text dimColor>{count}</Text>
+      <Box marginTop={1} flexDirection="column">
+        <Box>
+          <Text bold>{label} </Text>
+          <Text dimColor>{count}</Text>
+        </Box>
+        {rule(true)}
       </Box>
     )
 
@@ -490,6 +550,7 @@ export const register: Register = (on, options) => {
           <Text dimColor>{upNext.length}</Text>
           <Button key="add-open" label="Add" dimColor onPress={() => openAdd($, shown)} />
         </Box>
+        {rule(true)}
         {form && !addTo && (
           <Box flexWrap="wrap" columnGap={1}>
             <Text dimColor>Add to</Text>
@@ -537,7 +598,7 @@ export const register: Register = (on, options) => {
           </Box>
         )}
         {upNext.length === 0 && <Text dimColor>Nothing queued. Press Add to queue one.</Text>}
-        {upNext.slice(0, ROWS).map(f =>
+        {separated(upNext.slice(0, ROWS).map(f =>
           row(
             `next-${startedKey(f)}`,
             null,
@@ -551,42 +612,54 @@ export const register: Register = (on, options) => {
               </Box>,
             ),
           ),
-        )}
+        ))}
 
         {header('In progress', going.length + mine.length)}
-        {going.map(f =>
-          row(
-            `going-${startedKey(f)}`,
-            null,
-            f.title,
-            <Text dimColor>{ago(startedMap[startedKey(f)] ?? null, now)}</Text>,
-            featureDetails(
-              f,
-              <Box columnGap={1}>
-                <Button
-                  key={`unstart-${startedKey(f)}`}
-                  label="Back to queue"
-                  dimColor
-                  onPress={() => unstart($, f)}
-                />
-                {itemButtons(f)}
-              </Box>,
+        {separated([
+          ...going.map(f =>
+            row(
+              `going-${startedKey(f)}`,
+              null,
+              f.title,
+              <Text dimColor>{ago(startedMap[startedKey(f)] ?? null, now)}</Text>,
+              featureDetails(
+                f,
+                <Box columnGap={1}>
+                  <Button
+                    key={`unstart-${startedKey(f)}`}
+                    label="Back to queue"
+                    dimColor
+                    onPress={() => unstart($, f)}
+                  />
+                  {itemButtons(f)}
+                </Box>,
+              ),
             ),
           ),
-        )}
-        {mine.slice(0, ROWS).map(pr =>
-          row(
-            `mine-${pr.url}`,
-            prLead(pr),
-            pr.title,
-            ciMark(pr),
-            null,
+          // Your own PR is merged where another's is reviewed; a draft has neither.
+          ...mine.slice(0, ROWS).map(pr =>
+            row(
+              `mine-${pr.url}`,
+              prLead(pr),
+              pr.title,
+              ciMark(pr),
+              pr.isDraft ? null : (
+                <Box columnGap={1}>
+                  <Button
+                    key={`merge-${pr.url}`}
+                    label={mergingUrl === pr.url ? 'Really merge' : 'Merge'}
+                    dimColor={mergingUrl !== pr.url}
+                    onPress={() => merge($, pr, roots)}
+                  />
+                </Box>
+              ),
+            ),
           ),
-        )}
+        ])}
 
         {header('Needs your review', toReview.length)}
         {toReview.length === 0 && <Text dimColor>No review requests.</Text>}
-        {toReview.slice(0, ROWS).map(pr =>
+        {separated(toReview.slice(0, ROWS).map(pr =>
           row(
             `review-${pr.url}`,
             prLead(pr),
@@ -597,7 +670,7 @@ export const register: Register = (on, options) => {
               <Button key={`do-review-${pr.url}`} label="Review" onPress={() => review($, pr)} />
             </Box>,
           ),
-        )}
+        ))}
 
         <Box marginTop={1} columnGap={1}>
           <Text bold>Shipped this week </Text>
@@ -609,8 +682,9 @@ export const register: Register = (on, options) => {
             onPress={() => update($, isShippedOpen, open => !open)}
           />
         </Box>
+        {rule(true)}
         {isShipped &&
-          shipped.slice(0, ROWS).map(pr =>
+          separated(shipped.slice(0, ROWS).map(pr =>
             row(
               `shipped-${pr.url}`,
               prLead(pr),
@@ -619,7 +693,7 @@ export const register: Register = (on, options) => {
               null,
               true,
             ),
-          )}
+          ))}
 
         <Box marginTop={1} columnGap={1}>
           <Text dimColor>

@@ -63,3 +63,24 @@ export function parsePrs(stdout: string): Prs {
     merged: toPrs(data.merged?.nodes),
   }
 }
+
+export type MergeMethod = 'squash' | 'merge' | 'rebase'
+
+export function mergeSettingsArgv(repo: string): string[] {
+  return ['gh', 'repo', 'view', repo, '--json', 'squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed']
+}
+
+// `gh pr merge` run by no one at a terminal must be told how: the first the
+// repo allows, squash before a merge commit before a rebase.
+export function mergeMethod(stdout: string): MergeMethod | null {
+  const allowed = JSON.parse(stdout) as Record<string, unknown>
+  if (allowed.squashMergeAllowed === true) return 'squash'
+  if (allowed.mergeCommitAllowed === true) return 'merge'
+  if (allowed.rebaseMergeAllowed === true) return 'rebase'
+
+  return null
+}
+
+export function mergeArgv(url: string, method: MergeMethod): string[] {
+  return ['gh', 'pr', 'merge', url, `--${method}`]
+}

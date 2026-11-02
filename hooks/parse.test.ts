@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { appendFeature, markDone, parseFeatures, parseItemInput, removeFeature, slug } from './features'
-import { parsePrs, searchArgv } from './github'
+import { mergeArgv, mergeMethod, mergeSettingsArgv, parsePrs, searchArgv } from './github'
 import { parseRoots, remoteSlug } from './repos'
 
 test('a features list reads items, briefs and done marks', async () => {
@@ -128,4 +128,17 @@ test('PRs map CI states and skip empty nodes', async () => {
   expect(prs.review[0]?.ci).toBe(null)
   expect(prs.review[0]?.author).toBe('someone')
   expect(prs.merged).toEqual([])
+})
+
+test('a merge takes the first method the repo allows: squash, a merge commit, a rebase', () => {
+  const allowed = (squash: boolean, merge: boolean, rebase: boolean) =>
+    JSON.stringify({ squashMergeAllowed: squash, mergeCommitAllowed: merge, rebaseMergeAllowed: rebase })
+  expect(mergeMethod(allowed(true, true, true))).toBe('squash')
+  expect(mergeMethod(allowed(false, true, true))).toBe('merge')
+  expect(mergeMethod(allowed(false, false, true))).toBe('rebase')
+  expect(mergeMethod(allowed(false, false, false))).toBe(null)
+  expect(mergeSettingsArgv('o/r').slice(0, 4)).toEqual(['gh', 'repo', 'view', 'o/r'])
+  expect(mergeArgv('https://github.com/o/r/pull/3', 'squash')).toEqual([
+    'gh', 'pr', 'merge', 'https://github.com/o/r/pull/3', '--squash',
+  ])
 })
