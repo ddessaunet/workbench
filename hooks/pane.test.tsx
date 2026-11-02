@@ -303,3 +303,126 @@ test('Done marks an item [x] and Remove, pressed twice, deletes it with its brie
   expect(store.get('started')).toEqual({})
   await ui.unmount()
 })
+
+const ran = (stdout: string) => ({
+  exitCode: 0,
+  stdout,
+  stderr: '',
+  isStdoutTruncated: false,
+  isStderrTruncated: false,
+})
+
+test('a refresh that never ends stops blocking the next ones once it is stale', async ($, on) => {
+  // As a hot reload leaves it: marked running in session state, never finishing.
+  const clock = mock.clock(on)
+  let ghCalls = 0
+
+  on('command.register', () => ({ value: { command: 'workbench' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('store.get', () => ({ value: undefined }))
+  on('fs.exists', () => ({ value: false }))
+  on('fs.list', () => ({ value: [] }))
+  on('process.run', async () => {
+    ghCalls += 1
+    if (ghCalls === 1) await clock.sleep(60 * 60 * 1000)
+
+    return { value: ran('{"data":{}}') }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(0)
+  expect(ghCalls).toBe(1)
+
+  // The 2-minute timer fires at 2 and 4 minutes; the first refresh still holds.
+  await clock.advance(4 * 60 * 1000)
+  expect(ghCalls).toBe(1)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /Refreshing/ }))?.text).toBe('Refreshing…')
+
+  // At 6 minutes it is past five: taken as gone, and the timer's refresh runs.
+  await clock.advance(2 * 60 * 1000)
+  expect(ghCalls).toBe(2)
+  expect((await ui.find({ type: 'Text', text: /Updated/ }))?.text).toBe('Updated just now')
+  await ui.unmount()
+  // Let the first one end, so nothing is left waiting when the test does.
+  await clock.advance(60 * 60 * 1000)
+})
+
+test('a session with no one at the prompt opens nothing, scans nothing, polls nothing', async ($, on) => {
+  const clock = mock.clock(on)
+  const calls: string[] = []
+
+  on('command.register', () => {
+    calls.push('command.register')
+
+    return { value: { command: 'workbench' } }
+  })
+  on('ui.open', () => {
+    calls.push('ui.open')
+
+    return { value: { isPlaced: true } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('fs.list', () => {
+    calls.push('fs.list')
+
+    return { value: [] }
+  })
+  on('process.run', (_, e) => {
+    calls.push(e.argv[0] ?? '')
+
+    return { value: ran('{"data":{}}') }
+  })
+
+  await $.session.start({ cwd: '/', surface: null, isInteractive: false })
+  await clock.advance(10 * 60 * 1000)
+  expect(calls).toEqual([])
+})
+
+test('one repo that cannot be read leaves the others and GitHub shown', async ($, on) => {
+  mock.clock(on)
+  const BROKEN = '/home/me/repositories/personal/broken'
+
+  on('command.register', () => ({ value: { command: 'workbench' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('store.get', () => ({ value: undefined }))
+  on('fs.exists', (_, e) => ({
+    value: [REPO, BROKEN].some(repo => e.path === `${repo}/.git` || e.path === `${repo}/.claude/features.md`),
+  }))
+  on('fs.list', (_, e) => ({
+    value:
+      e.path === '/home/me/repositories'
+        ? [{ name: 'personal', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }]
+        : e.path === '/home/me/repositories/personal'
+          ? [
+              { name: 'broken', kind: 'dir', size: 0, mtimeMs: 0, isLink: false },
+              { name: 'stack', kind: 'dir', size: 0, mtimeMs: 0, isLink: false },
+            ]
+          : [],
+  }))
+  on('fs.read', (_, e) => {
+    if (e.path.startsWith(BROKEN)) return { deny: 'EACCES: permission denied' }
+
+    return { value: FEATURES }
+  })
+  on('process.run', (_, e) => {
+    if (e.argv[0] !== 'git') return { value: ran(GH) }
+    if (e.init?.cwd === BROKEN) return { deny: 'git would not start' }
+
+    return { value: ran('git@github.com:me/stack.git\n') }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /Retry stuck requests/ }))?.text).toBe('Retry stuck requests')
+  expect((await ui.find({ type: 'Text', text: /payment retries/ }))?.text).toBe('Add payment retries')
+  expect((await ui.find({ type: 'Text', text: /^broken: / }))?.text).toMatch(
+    /^broken: .*git would not start.* \(\+1 more\)$/,
+  )
+  await ui.unmount()
+})

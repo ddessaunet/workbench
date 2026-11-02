@@ -28,7 +28,8 @@ declare module 'claude-code' {
       // `<repo path>#<feature id>` → when Start was pressed; kept in $.store too.
       started: Record<string, number>
       refreshedAt: number | null
-      isRefreshing: boolean
+      // When the running refresh began; null when none runs.
+      refreshingSince: number | null
       error: string | null
       // A repo's name, or 'all'.
       filter: string

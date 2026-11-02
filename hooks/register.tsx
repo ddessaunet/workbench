@@ -18,13 +18,16 @@ import { parseRoots, remoteSlug } from './repos'
 const PANE = 'workbench'
 const ROWS = 8
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+// A refresh marked as running for longer than this is taken as gone: a hot
+// reload cancels its work, but the mark is session state and survives it.
+const STALE_MS = 5 * 60 * 1000
 
 const repos = atom({ plugin: 'workbench', key: 'repos' } as const, [])
 const features = atom({ plugin: 'workbench', key: 'features' } as const, [])
 const prs = atom({ plugin: 'workbench', key: 'prs' } as const, null)
 const started = atom({ plugin: 'workbench', key: 'started' } as const, {})
 const refreshedAt = atom({ plugin: 'workbench', key: 'refreshedAt' } as const, null)
-const isRefreshing = atom({ plugin: 'workbench', key: 'isRefreshing' } as const, false)
+const refreshingSince = atom({ plugin: 'workbench', key: 'refreshingSince' } as const, null)
 const error = atom({ plugin: 'workbench', key: 'error' } as const, null)
 const filter = atom({ plugin: 'workbench', key: 'filter' } as const, 'all')
 const isShippedOpen = atom({ plugin: 'workbench', key: 'isShippedOpen' } as const, false)
@@ -46,6 +49,18 @@ function listFile(repo: Pick<Repo, 'path'>): string {
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+function isRunning(since: number | null, now: number): boolean {
+  return since !== null && now - since < STALE_MS
+}
+
+// The first problem of a refresh, and how many more there were.
+function summary(problems: string[]): string | null {
+  const [first] = problems
+  if (first === undefined) return null
+
+  return problems.length > 1 ? `${first} (+${problems.length - 1} more)` : first
 }
 
 function ago(then: number | null, now: number): string {
@@ -74,7 +89,7 @@ async function childDirs($: EngineInterface, path: string): Promise<string[]> {
 // Git repositories at a root, or one or two levels under it
 // (`~/repositories/personal/pms-arr-setup`). Worktrees live under a repo's
 // `.claude/`, which is hidden, so they are never listed twice.
-async function findRepos($: EngineInterface, roots: string[]): Promise<Repo[]> {
+async function findRepos($: EngineInterface, roots: string[], problems: string[]): Promise<Repo[]> {
   const paths: string[] = []
 
   for (const root of roots) {
@@ -93,27 +108,35 @@ async function findRepos($: EngineInterface, roots: string[]): Promise<Repo[]> {
     }
   }
 
+  // One repo's trouble is noted and the rest go on: it is listed without a
+  // slug, so its review requests start without its path.
   const repos: Repo[] = []
   for (const path of paths) {
-    const remote = await $.process.run(['git', 'remote', 'get-url', 'origin'], { cwd: path })
-    repos.push({
-      path,
-      name: path.slice(path.lastIndexOf('/') + 1),
-      slug: remote.exitCode === 0 ? remoteSlug(remote.stdout) : null,
-      hasList: await $.fs.exists(listFile({ path })),
-    })
+    const name = path.slice(path.lastIndexOf('/') + 1)
+    let slug: string | null = null
+    try {
+      const remote = await $.process.run(['git', 'remote', 'get-url', 'origin'], { cwd: path })
+      slug = remote.exitCode === 0 ? remoteSlug(remote.stdout) : null
+    } catch (err) {
+      problems.push(`${name}: ${message(err)}`)
+    }
+    repos.push({ path, name, slug, hasList: await $.fs.exists(listFile({ path })) })
   }
 
   return repos
 }
 
-async function loadFeatures($: EngineInterface, list: Repo[]): Promise<RepoFeature[]> {
+// A list that cannot be read is noted and skipped, not the end of the refresh.
+async function loadFeatures($: EngineInterface, list: Repo[], problems: string[]): Promise<RepoFeature[]> {
   const found: RepoFeature[] = []
   for (const repo of list) {
     if (!repo.hasList) continue
-    const text = await $.fs.read(listFile(repo))
-    for (const feature of parseFeatures(typeof text === 'string' ? text : '')) {
-      found.push({ ...feature, repoPath: repo.path })
+    try {
+      for (const feature of parseFeatures(await $.fs.read(listFile(repo)))) {
+        found.push({ ...feature, repoPath: repo.path })
+      }
+    } catch (err) {
+      problems.push(`${repo.name}: ${message(err)}`)
     }
   }
 
@@ -121,32 +144,37 @@ async function loadFeatures($: EngineInterface, list: Repo[]): Promise<RepoFeatu
 }
 
 async function refresh($: EngineInterface, roots: string): Promise<void> {
-  if (await read($, isRefreshing)) return
-  await update($, isRefreshing, () => true)
+  const startedAt = await $.clock.now()
+  if (isRunning(await read($, refreshingSince), startedAt)) return
+  await update($, refreshingSince, () => startedAt)
+  const problems: string[] = []
 
   try {
     const home = (await $.env.get('HOME')) ?? ''
-    const found = await findRepos($, parseRoots(roots, home))
+    const found = await findRepos($, parseRoots(roots, home), problems)
     await update($, repos, () => found)
-    const list = await loadFeatures($, found)
+    const list = await loadFeatures($, found, problems)
     await update($, features, () => list)
 
-    const since = new Date((await $.clock.now()) - WEEK_MS).toISOString().slice(0, 10)
-    const gh = await $.process.run(searchArgv(since), { timeoutMs: 30000 })
-    if (gh.exitCode === 0) {
-      const parsed = parsePrs(gh.stdout)
-      await update($, prs, () => parsed)
-      await update($, error, () => null)
-    } else {
-      const reason = gh.stderr.trim().split('\n')[0] || `exit ${gh.exitCode}`
-      await update($, error, () => `gh: ${reason}`)
+    const since = new Date(startedAt - WEEK_MS).toISOString().slice(0, 10)
+    try {
+      const gh = await $.process.run(searchArgv(since), { timeoutMs: 30000 })
+      if (gh.exitCode === 0) {
+        const parsed = parsePrs(gh.stdout)
+        await update($, prs, () => parsed)
+      } else {
+        problems.push(`gh: ${gh.stderr.trim().split('\n')[0] || `exit ${gh.exitCode}`}`)
+      }
+    } catch (err) {
+      problems.push(`gh: ${message(err)}`)
     }
   } catch (err) {
-    await update($, error, () => message(err))
+    problems.push(message(err))
   } finally {
+    await update($, error, () => summary(problems))
     const now = await $.clock.now()
     await update($, refreshedAt, () => now)
-    await update($, isRefreshing, () => false)
+    await update($, refreshingSince, () => null)
   }
 }
 
@@ -182,7 +210,9 @@ async function openAdd($: EngineInterface, shown: string): Promise<void> {
 // Reads one repo's list again after the pane wrote it, keeping the repos' order.
 async function reloadRepo($: EngineInterface, repo: Repo): Promise<void> {
   const listed = { ...repo, hasList: true }
-  const list = await loadFeatures($, [listed])
+  const problems: string[] = []
+  const list = await loadFeatures($, [listed], problems)
+  if (problems.length > 0) await update($, error, () => summary(problems))
   const all = await update($, repos, held => held.map(one => (one.path === repo.path ? listed : one)))
   await update($, features, held =>
     all.flatMap(one => (one.path === repo.path ? list : held.filter(f => f.repoPath === one.path))),
@@ -268,6 +298,8 @@ export const register: Register = (on, options) => {
   const minutes = typeof options.refresh_minutes === 'number' ? options.refresh_minutes : 2
 
   on('session.start', async ($, e, next) => {
+    // A `-p` run or the SDK has no one to look at the pane: no scans, no polling.
+    if (!e.isInteractive) return next(e)
     await $.command.register({
       name: 'workbench',
       description: 'Open the workbench pane: features, your PRs and review requests',
@@ -574,7 +606,9 @@ export const register: Register = (on, options) => {
 
         <Box marginTop={1} columnGap={1}>
           <Text dimColor>
-            {(await read($, isRefreshing)) ? 'Refreshing…' : `Updated ${ago(await read($, refreshedAt), now)}`}
+            {isRunning(await read($, refreshingSince), now)
+              ? 'Refreshing…'
+              : `Updated ${ago(await read($, refreshedAt), now)}`}
           </Text>
           <Button key="refresh" label="Refresh" dimColor onPress={() => refresh($, roots)} />
         </Box>
