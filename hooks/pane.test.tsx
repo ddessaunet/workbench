@@ -350,7 +350,7 @@ test('a refresh that never ends stops blocking the next ones once it is stale', 
   await clock.advance(60 * 60 * 1000)
 })
 
-test('a session with no one at the prompt opens nothing, scans nothing, polls nothing', async ($, on) => {
+test('a session nothing draws for opens nothing, scans nothing, polls nothing', async ($, on) => {
   const clock = mock.clock(on)
   const calls: string[] = []
 
@@ -365,6 +365,7 @@ test('a session with no one at the prompt opens nothing, scans nothing, polls no
     return { value: { isPlaced: true } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.surfaces', () => ({ value: [] }))
   on('fs.list', () => {
     calls.push('fs.list')
 
@@ -378,7 +379,51 @@ test('a session with no one at the prompt opens nothing, scans nothing, polls no
 
   await $.session.start({ cwd: '/', surface: null, isInteractive: false })
   await clock.advance(10 * 60 * 1000)
-  expect(calls).toEqual([])
+  expect(calls).toEqual(['command.register'])
+})
+
+test('in the desktop app the pane opens and polls once its surface attaches', async ($, on) => {
+  const clock = mock.clock(on)
+  const calls: string[] = []
+
+  on('command.register', () => {
+    calls.push('command.register')
+
+    return { value: { command: 'workbench' } }
+  })
+  on('ui.open', () => {
+    calls.push('ui.open')
+
+    return { value: { isPlaced: true } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.attach', (_, e) => ({ clientId: e.clientId }))
+  on('session.surfaces', () => ({ value: [] }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('store.get', () => ({ value: undefined }))
+  on('fs.exists', () => ({ value: false }))
+  on('fs.list', () => {
+    calls.push('fs.list')
+
+    return { value: [] }
+  })
+  on('process.run', () => ({ value: ran('{"data":{}}') }))
+
+  // The desktop app hosts the session as the SDK does: no surface at start.
+  await $.session.start({ cwd: '/', surface: null, isInteractive: false })
+  expect(calls).toEqual(['command.register'])
+
+  await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
+  await clock.advance(1)
+  expect(calls.filter(c => c === 'ui.open')).toHaveLength(1)
+  const scans = calls.filter(c => c === 'fs.list').length
+  expect(scans).toBeGreaterThan(0)
+
+  // A second client attaching opens no second pane and starts no second timer.
+  await $.session.attach({ surface: 'mobile', clientId: 'mobile:phone' })
+  await clock.advance(2 * 60 * 1000)
+  expect(calls.filter(c => c === 'ui.open')).toHaveLength(1)
+  expect(calls.filter(c => c === 'fs.list').length).toBe(scans * 2)
 })
 
 test('one repo that cannot be read leaves the others and GitHub shown', async ($, on) => {
