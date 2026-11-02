@@ -476,9 +476,10 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    // One line per row, whatever the width: the lead, the title in what is
-    // left, the status, and a toggle when the row has details. Pressed, the
-    // details open beneath it, one row at a time.
+    // One line per row, whatever the width: a toggle when the row has details
+    // (its slot kept empty when not, so leads line up), the lead, the title in
+    // what is left, and the status. Pressed, the details open beneath it, one
+    // row at a time.
     const row = (
       key: string,
       lead: RenderElement | null,
@@ -492,21 +493,23 @@ export const register: Register = (on, options) => {
       return (
         <Box key={key} flexDirection="column">
           <Box columnGap={1}>
+            <Box minWidth={1} marginRight={2} flexShrink={0}>
+              {details && (
+                <Button
+                  key={`expand-${key}`}
+                  label={isOpen ? '▾' : '▸'}
+                  dimColor={!isOpen}
+                  onPress={() => update($, expanded, held => (held === key ? null : key))}
+                />
+              )}
+            </Box>
             {lead}
             <Box flexGrow={1} flexShrink={1}>
               <Text dimColor={isDim} wrap="truncate-end">{title}</Text>
             </Box>
             {status}
-            {details && (
-              <Button
-                key={`expand-${key}`}
-                label={isOpen ? '▾' : '▸'}
-                dimColor={!isOpen}
-                onPress={() => update($, expanded, held => (held === key ? null : key))}
-              />
-            )}
           </Box>
-          {isOpen && <Box paddingLeft={2}>{details}</Box>}
+          {isOpen && <Box paddingLeft={4}>{details}</Box>}
         </Box>
       )
     }

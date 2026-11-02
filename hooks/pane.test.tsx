@@ -115,9 +115,10 @@ test('the pane lists features, PRs and reviews, and Start hands Claude a prompt'
     expect((await ui.find({ key: `start-${REPO}#retry-stuck-requests` }))?.text).toBe('Start')
     await ui.press({ key: `expand-next-${REPO}#retry-stuck-requests` })
     expect(await ui.find({ key: `start-${REPO}#retry-stuck-requests` })).toBe(undefined)
-    // The PR's link leads, in a column as wide as the widest label (portal#12).
+    // The toggle comes first, then the PR's link, in a column as wide as the
+    // widest label (portal#12).
     const mine = await ui.find({ key: 'mine-https://github.com/me/stack/pull/86' })
-    expect(mine?.text.startsWith('stack#86')).toBe(true)
+    expect(mine?.text).toMatch(/^▸\s*stack#86/)
     expect(await ui.find({ type: 'Box', text: /^stack#86$/ })).toMatchObject({ props: { width: 9 } })
     await ui.unmount()
   }
