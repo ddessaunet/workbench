@@ -1,0 +1,21 @@
+{
+  "name": "workbench",
+  "version": "0.1.0",
+  "description": "A pane beside the chat with each repo's feature list, your open PRs and review requests, and buttons that start a session for one",
+  "author": { "name": "Dario Dessaunet" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "roots": {
+      "type": "string",
+      "title": "Repository folders",
+      "description": "Comma-separated folders holding your git repositories, searched two levels deep; ~ is your home",
+      "default": "~/repositories"
+    },
+    "refresh_minutes": {
+      "type": "number",
+      "title": "Refresh every (minutes)",
+      "description": "How often the pane re-reads feature lists and GitHub",
+      "default": 2
+    }
+  }
+}

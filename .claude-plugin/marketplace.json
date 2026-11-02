@@ -1,0 +1,13 @@
+{
+  "name": "workbench",
+  "description": "Dario's daily development tools for Claude Code",
+  "owner": {
+    "name": "Dario Dessaunet"
+  },
+  "plugins": [
+    {
+      "name": "workbench",
+      "source": "./"
+    }
+  ]
+}
