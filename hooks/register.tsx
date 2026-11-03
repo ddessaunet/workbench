@@ -437,13 +437,23 @@ export const register: Register = (on, options) => {
       ) : (
         <Text dimColor wrap="truncate-end">{(isSection ? '━' : '─').repeat(e.props.bodyColumns)}</Text>
       )
-    const separated = (rows: RenderElement[]) => rows.flatMap((one, i) => (i === 0 ? [one] : [rule(false), one]))
+    // A row's gap keeps desktop's native buttons, taller than a line, from
+    // touching the next row's. The engine refuses a step name here, so it is
+    // a cell in the terminal too.
+    const separated = (rows: RenderElement[]) => (
+      <Box flexDirection="column" rowGap={1}>
+        {rows.flatMap((one, i) => (i === 0 ? [one] : [rule(false), one]))}
+      </Box>
+    )
 
-    const header = (label: string, count: number) => (
-      <Box marginTop={1} flexDirection="column">
-        <Box>
+    // A section's title, its count and any button of its own, over the heavy
+    // rule, with a row between the rule and what the section holds.
+    const header = (label: string, count: number, action: RenderElement | null = null) => (
+      <Box marginTop={2} marginBottom={1} flexDirection="column">
+        <Box columnGap={1}>
           <Text bold>{label} </Text>
           <Text dimColor>{count}</Text>
+          {action}
         </Box>
         {rule(true)}
       </Box>
@@ -554,14 +564,13 @@ export const register: Register = (on, options) => {
           </Box>
         )}
 
-        <Box marginTop={1} columnGap={1}>
-          <Text bold>Up next </Text>
-          <Text dimColor>{upNext.length}</Text>
-          {!form && <Button key="add-open" label="Add" dimColor onPress={() => openAdd($, shown)} />}
-        </Box>
-        {rule(true)}
+        {header(
+          'Up next',
+          upNext.length,
+          form ? null : <Button key="add-open" label="Add" dimColor onPress={() => openAdd($, shown)} />,
+        )}
         {form && !addTo && (
-          <Box flexWrap="wrap" columnGap={1}>
+          <Box flexWrap="wrap" columnGap={1} marginBottom={1}>
             <Text dimColor>Add to</Text>
             {[...repoList]
               .sort((a, b) => a.name.localeCompare(b.name))
@@ -576,7 +585,7 @@ export const register: Register = (on, options) => {
           </Box>
         )}
         {addTo && (
-          <Box flexDirection="column">
+          <Box flexDirection="column" rowGap={1} marginBottom={1}>
             <Box columnGap={1}>
               <Text>{`Add to ${addTo.name}`}</Text>
               {!addTo.hasList && <Text dimColor>creates .claude/features.md</Text>}
@@ -701,17 +710,16 @@ export const register: Register = (on, options) => {
           ),
         ))}
 
-        <Box marginTop={1} columnGap={1}>
-          <Text bold>Shipped this week </Text>
-          <Text dimColor>{shipped.length}</Text>
+        {header(
+          'Shipped this week',
+          shipped.length,
           <Button
             key="shipped-toggle"
             label={isShipped ? 'Hide' : 'Show'}
             dimColor
             onPress={() => update($, isShippedOpen, open => !open)}
-          />
-        </Box>
-        {rule(true)}
+          />,
+        )}
         {isShipped &&
           separated(shipped.slice(0, ROWS).map(pr =>
             row(
