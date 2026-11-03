@@ -216,10 +216,16 @@ async function review($: EngineInterface, pr: Pr): Promise<void> {
 }
 
 // Merge asks for a second press, then merges the way the repo allows and
-// refreshes, so the row leaves once GitHub has it merged.
+// refreshes, so the row leaves once GitHub has it merged. The pointer leaving
+// never reaches the plugin, so an unanswered ask lapses on its own.
+const MERGE_ASK_MS = 5000
+let mergeAsk: { cancel: () => void } | undefined
+
 async function merge($: EngineInterface, pr: Pr, roots: string): Promise<void> {
+  mergeAsk?.cancel()
   if ((await read($, merging)) !== pr.url) {
     await update($, merging, () => pr.url)
+    mergeAsk = $.clock.after(MERGE_ASK_MS, () => void update($, merging, held => (held === pr.url ? null : held)))
     return
   }
   await update($, merging, () => null)
@@ -498,7 +504,7 @@ export const register: Register = (on, options) => {
     // lets it shrink below its text's length, which desktop otherwise refuses,
     // pushing the end out of the pane. Pressed, the details open beneath it,
     // one row at a time. The reveal's Box has no key: one would scope its own
-    // hover, which a hidden Box never gets; `isShown` keeps it drawn.
+    // hover, which a hidden Box never gets.
     const row = (
       key: string,
       lead: RenderElement | null,
@@ -509,8 +515,7 @@ export const register: Register = (on, options) => {
         isDim = false,
         mark = null,
         reveal = null,
-        isShown = false,
-      }: { isDim?: boolean; mark?: RenderElement | null; reveal?: RenderElement | null; isShown?: boolean } = {},
+      }: { isDim?: boolean; mark?: RenderElement | null; reveal?: RenderElement | null } = {},
     ) => {
       const isOpen = details !== null && openRow === key
 
@@ -531,11 +536,7 @@ export const register: Register = (on, options) => {
             <Box flexGrow={1} flexShrink={1} minWidth={0}>
               <Text dimColor={isDim} wrap="wrap">{title}</Text>
             </Box>
-            {reveal && (isShown ? (
-              <Box flexShrink={0}>{reveal}</Box>
-            ) : (
-              <Box flexShrink={0} display="none" hover={{ display: 'flex' }}>{reveal}</Box>
-            ))}
+            {reveal && <Box flexShrink={0} display="none" hover={{ display: 'flex' }}>{reveal}</Box>}
             {status}
           </Box>
           {isOpen && <Box paddingLeft={4}>{details}</Box>}
@@ -688,8 +689,8 @@ export const register: Register = (on, options) => {
             ),
           ),
           // Your own PR is merged where another's is reviewed; a draft has neither.
-          // Its square is green when the ✓ is, and Merge shows under the pointer,
-          // or while it waits for the second press. Merge is a link, a line tall
+          // Its square is green when the ✓ is, and Merge shows under the pointer
+          // only, its second press asked for too. Merge is a link, a line tall
           // where a Button is taller, so showing it leaves the row's height; a
           // press merges, and a modified click opens the PR.
           ...mine.slice(0, ROWS).map(pr =>
@@ -710,7 +711,6 @@ export const register: Register = (on, options) => {
                     onLinkPress={() => merge($, pr, roots)}
                   />
                 ),
-                isShown: mergingUrl === pr.url,
               },
             ),
           ),

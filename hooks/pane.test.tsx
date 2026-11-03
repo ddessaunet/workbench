@@ -504,7 +504,7 @@ test('one repo that cannot be read leaves the others and GitHub shown', async ($
 })
 
 test('your PR has Merge where another\'s has Review; pressed twice, it merges the way its repo allows', async ($, on) => {
-  mock.clock(on)
+  const clock = mock.clock(on)
   const runs: string[][] = []
   let mergeFails = false
   let checks = 'FAILURE'
@@ -554,12 +554,16 @@ test('your PR has Merge where another\'s has Review; pressed twice, it merges th
     // `find` carries props, not the hover that reveals it.
     expect((await ui.find({ type: 'Box', text: /^\[Merge\]/ }))?.props.display).toBe('none')
 
-    // Armed, it stays drawn when the pointer leaves.
+    // Asked, it still hides with the pointer gone, and the ask lapses.
     await pressMerge(ui)
     expect((await ui.find({ key: `merge-${URL}` }))?.text).toBe(`[Really merge](${URL})`)
-    expect((await ui.find({ type: 'Box', text: /^\[Really merge\]/ }))?.props.display).toBe(undefined)
+    expect((await ui.find({ type: 'Box', text: /^\[Really merge\]/ }))?.props.display).toBe('none')
+    await clock.advance(5000)
+    expect((await ui.find({ key: `merge-${URL}` }))?.text).toBe(`[Merge](${URL})`)
     expect(merges()).toEqual([])
 
+    // Two presses in time merge.
+    await pressMerge(ui)
     await pressMerge(ui)
     expect(merges()).toEqual([['gh', 'pr', 'merge', URL, '--merge']])
     // Then the lists are read again.
