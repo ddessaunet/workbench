@@ -677,55 +677,57 @@ export const register: Register = (on, options) => {
           ),
         ))}
 
-        {header('In progress', going.length + mine.length)}
-        {separated([
-          ...going.map(f =>
-            row(
-              `going-${startedKey(f)}`,
-              null,
-              f.title,
-              <Text dimColor>{ago(startedMap[startedKey(f)] ?? null, now)}</Text>,
-              featureDetails(
-                f,
-                <Box columnGap={1}>
-                  <Button
-                    key={`unstart-${startedKey(f)}`}
-                    label="Back to queue"
-                    dimColor
-                    onPress={() => unstart($, f)}
-                  />
-                  {itemButtons(f)}
-                </Box>,
+        {header('In progress', going.length)}
+        {going.length === 0 && <Text dimColor>Nothing started.</Text>}
+        {separated(going.map(f =>
+          row(
+            `going-${startedKey(f)}`,
+            null,
+            f.title,
+            <Text dimColor>{ago(startedMap[startedKey(f)] ?? null, now)}</Text>,
+            featureDetails(
+              f,
+              <Box columnGap={1}>
+                <Button
+                  key={`unstart-${startedKey(f)}`}
+                  label="Back to queue"
+                  dimColor
+                  onPress={() => unstart($, f)}
+                />
+                {itemButtons(f)}
+              </Box>,
+            ),
+          ),
+        ))}
+
+        {header('Your PRs', mine.length)}
+        {mine.length === 0 && <Text dimColor>No open PRs.</Text>}
+        {/* Your own PR is merged where another's is reviewed; a draft has neither.
+            Its square is green when the ✓ is, and Merge shows under the pointer
+            only, its second press asked for too. Merge is a link, a line tall
+            where a Button is taller, so showing it leaves the row's height; a
+            press merges, and a modified click opens the PR. */}
+        {separated(mine.slice(0, ROWS).map(pr =>
+          row(
+            `mine-${pr.url}`,
+            prLead(pr),
+            pr.title,
+            ciMark(pr),
+            null,
+            {
+              mark: ciSquare(pr),
+              reveal: pr.isDraft ? null : (
+                <Markdown
+                  key={`merge-${pr.url}`}
+                  text={`[${mergingUrl === pr.url ? 'Really merge' : 'Merge'}](${pr.url})`}
+                  dimColor={mergingUrl !== pr.url}
+                  pressableLinks={[pr.url]}
+                  onLinkPress={() => merge($, pr, roots)}
+                />
               ),
-            ),
+            },
           ),
-          // Your own PR is merged where another's is reviewed; a draft has neither.
-          // Its square is green when the ✓ is, and Merge shows under the pointer
-          // only, its second press asked for too. Merge is a link, a line tall
-          // where a Button is taller, so showing it leaves the row's height; a
-          // press merges, and a modified click opens the PR.
-          ...mine.slice(0, ROWS).map(pr =>
-            row(
-              `mine-${pr.url}`,
-              prLead(pr),
-              pr.title,
-              ciMark(pr),
-              null,
-              {
-                mark: ciSquare(pr),
-                reveal: pr.isDraft ? null : (
-                  <Markdown
-                    key={`merge-${pr.url}`}
-                    text={`[${mergingUrl === pr.url ? 'Really merge' : 'Merge'}](${pr.url})`}
-                    dimColor={mergingUrl !== pr.url}
-                    pressableLinks={[pr.url]}
-                    onLinkPress={() => merge($, pr, roots)}
-                  />
-                ),
-              },
-            ),
-          ),
-        ])}
+        ))}
 
         {header('Needs your review', toReview.length)}
         {toReview.length === 0 && <Text dimColor>No review requests.</Text>}
