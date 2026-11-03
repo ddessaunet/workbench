@@ -492,10 +492,11 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    // One line per row, whatever the width: a toggle when the row has details
-    // (its slot kept empty when not, so leads line up), the lead, the title in
-    // what is left, and the status. Pressed, the details open beneath it, one
-    // row at a time.
+    // A row: a toggle when it has details (its slot kept empty when not, so
+    // leads line up), the lead, the title wrapping in what is left, and the
+    // status. The title's zero minWidth lets it shrink below its text's length,
+    // which desktop otherwise refuses, pushing the end out of the pane.
+    // Pressed, the details open beneath it, one row at a time.
     const row = (
       key: string,
       lead: RenderElement | null,
@@ -520,8 +521,8 @@ export const register: Register = (on, options) => {
               )}
             </Box>
             {lead}
-            <Box flexGrow={1} flexShrink={1}>
-              <Text dimColor={isDim} wrap="truncate-end">{title}</Text>
+            <Box flexGrow={1} flexShrink={1} minWidth={0}>
+              <Text dimColor={isDim} wrap="wrap">{title}</Text>
             </Box>
             {status}
           </Box>

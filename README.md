@@ -9,7 +9,7 @@ the chat that shows, across every repository on this machine:
   fill in a title and, if you like, a brief, and Enter in either field adds it to
   that repo's list. **Create empty list** starts one for a repo that has none, and **Draft with
   Claude** has Claude read the repo and propose items, which it writes once you
-  agree. Each row is one line; the **▸** at its start opens the brief and buttons beneath it,
+  agree. A long title wraps within the pane; the **▸** at a row's start opens the brief and buttons beneath it,
   where **Done** marks the item `[x]` and **Remove**, pressed twice, deletes it and
   its brief.
 - **In progress**: items you started, and your open PRs with their CI state.
