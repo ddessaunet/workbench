@@ -120,6 +120,9 @@ test('the pane lists features, PRs and reviews, and Start hands Claude a prompt'
     const mine = await ui.find({ key: 'mine-https://github.com/me/stack/pull/86' })
     expect(mine?.text).toMatch(/^■\s*stack#86/)
     expect(await ui.find({ type: 'Box', text: /^stack#86$/ })).toMatchObject({ props: { width: 9 } })
+    // Your PRs have a section of their own; In progress holds started items only.
+    expect(await ui.find({ type: 'Text', text: /^Your PRs/ })).not.toBe(undefined)
+    expect(await ui.find({ type: 'Text', text: 'Nothing started.' })).not.toBe(undefined)
     await ui.unmount()
   }
 
@@ -150,6 +153,7 @@ test('the pane lists features, PRs and reviews, and Start hands Claude a prompt'
   expect(prompts[0]).toContain('Add a retry action.')
   expect(Object.keys(store.get('started') as object)).toEqual([`${REPO}#retry-stuck-requests`])
   expect((await ui.find({ key: `going-${REPO}#retry-stuck-requests` }))?.text).toContain('just now')
+  expect(await ui.find({ type: 'Text', text: 'Nothing started.' })).toBe(undefined)
 
   const review = 'https://github.com/team/portal/pull/12'
   await ui.press({ key: `do-review-${review}`, link: { href: review } })
@@ -328,15 +332,15 @@ test('Done marks an item [x] and Remove, pressed twice, deletes it with its brie
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
-  // A heavy rule under each of the four headers, a faint one between the two
+  // A heavy rule under each of the five headers, a faint one between the two
   // queued items: characters on the terminal, drawings on the desktop.
   const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await terminal.findAll({ type: 'Text', text: '━'.repeat(60) })).toHaveLength(4)
+  expect(await terminal.findAll({ type: 'Text', text: '━'.repeat(60) })).toHaveLength(5)
   expect(await terminal.findAll({ type: 'Text', text: '─'.repeat(60) })).toHaveLength(1)
   await terminal.unmount()
   const desktop = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const rules = await desktop.findAll({ type: 'Svg' })
-  expect(rules.map(svg => svg.props.height)).toEqual([2, 1, 2, 2, 2])
+  expect(rules.map(svg => svg.props.height)).toEqual([2, 1, 2, 2, 2, 2])
   await desktop.unmount()
 
   for (const surface of ['terminal', 'desktop'] as const) {

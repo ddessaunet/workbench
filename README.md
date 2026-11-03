@@ -13,8 +13,8 @@ the chat that shows, across every repository on this machine:
   agree. A long title wraps within the pane; the **▸** at a row's start opens the brief and buttons beneath it,
   where **Done** marks the item `[x]` and **Remove**, pressed twice, deletes it and
   its brief.
-- **In progress**: items you started, and your open PRs with their CI state.
-  Each PR of yours leads with a **■**, green when its checks pass, and shows
+- **In progress**: items you started from Up next, with how long ago.
+- **Your PRs**: your open PRs with their CI state. Each leads with a **■**, green when its checks pass, and shows
   **Merge** while you point at the row; pressed twice, it merges the PR with
   `gh pr merge` the first way its repo allows (squash, then a merge commit, then
   a rebase). Drafts have no Merge.
