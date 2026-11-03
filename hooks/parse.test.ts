@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { appendFeature, markDone, parseFeatures, parseItemInput, removeFeature, slug } from './features'
+import { appendFeature, markDone, itemFields, parseFeatures, removeFeature, slug } from './features'
 import { mergeArgv, mergeMethod, mergeSettingsArgv, parsePrs, searchArgv } from './github'
 import { parseRoots, remoteSlug } from './repos'
 
@@ -33,13 +33,13 @@ test('a slug keeps letters and digits only', async () => {
   expect(slug('  Add #88: PR screenshots!  ')).toBe('add-88-pr-screenshots')
 })
 
-test('the Add field reads a title, then a brief', async () => {
-  expect(parseItemInput('Retry stuck requests')).toEqual({ title: 'Retry stuck requests', brief: '' })
-  expect(parseItemInput('  Retry  \n\n  Over a day.\n  Only /requests/. \n')).toEqual({
-    title: 'Retry',
+test('the Add fields keep the title on one line and the brief without blanks', async () => {
+  expect(itemFields('Retry stuck requests', '')).toEqual({ title: 'Retry stuck requests', brief: '' })
+  expect(itemFields('  Retry  \n stuck ', '\n  Over a day.\n\n  Only /requests/. \n')).toEqual({
+    title: 'Retry stuck',
     brief: 'Over a day.\nOnly /requests/.',
   })
-  expect(parseItemInput(' \n \n')).toBe(null)
+  expect(itemFields(' \n ', 'A brief.')).toBe(null)
 })
 
 test('an item is appended where parseFeatures reads it', async () => {

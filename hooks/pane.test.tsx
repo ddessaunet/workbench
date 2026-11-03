@@ -203,6 +203,8 @@ test('Add writes an item into a repo list, Create starts one, Draft hands Claude
     await ui.press({ key: `add-to-${EMPTY}` })
     expect((await ui.find({ type: 'Text', text: /Add to/ }))?.text).toBe('Add to empty')
     expect((await ui.find({ type: 'Text', text: /creates/ }))?.text).toBe('creates .claude/features.md')
+    expect(await ui.find({ key: 'add-title' })).not.toBe(undefined)
+    expect(await ui.find({ key: 'add-brief' })).not.toBe(undefined)
     await ui.press({ key: 'add-cancel' })
     expect(await ui.find({ type: 'Text', text: /Add to/ })).toBe(undefined)
     await ui.unmount()
@@ -215,14 +217,27 @@ test('Add writes an item into a repo list, Create starts one, Draft hands Claude
   expect(files.get(`${EMPTY}/.claude/features.md`)).toBe('# Features\n')
   expect(await ui.find({ type: 'Text', text: /creates/ })).toBe(undefined)
 
-  await $.ui.input({ plugin: 'workbench', key: 'add-item', text: 'New thing\nIts brief.' })
+  await ui.press({ key: 'add-submit' })
+  expect((await ui.find({ type: 'Text', text: /title is empty/ }))?.text).toBe('Add: the title is empty.')
+  expect(files.get(`${EMPTY}/.claude/features.md`)).toBe('# Features\n')
+
+  await ui.input({ key: 'add-title', text: 'New thing', kind: 'change' })
+  await ui.input({ key: 'add-brief', text: 'Its brief.', kind: 'change' })
+  await ui.press({ key: 'add-submit' })
   expect(files.get(`${EMPTY}/.claude/features.md`)).toBe('# Features\n\n- [ ] New thing\n  Its brief.\n')
   expect((await ui.find({ type: 'Text', text: /New thing/ }))?.text).toBe('New thing')
   expect(await ui.find({ type: 'Text', text: /Add to/ })).toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /title is empty/ })).toBe(undefined)
+
+  // Enter in the title adds it too, with no brief.
+  await ui.press({ key: 'add-open' })
+  await ui.press({ key: `add-to-${EMPTY}` })
+  await ui.input({ key: 'add-title', text: 'Bare thing' })
+  expect(files.get(`${EMPTY}/.claude/features.md`)).toBe('# Features\n\n- [ ] New thing\n  Its brief.\n- [ ] Bare thing\n')
 
   await ui.press({ key: 'add-open' })
   await ui.press({ key: `add-to-${REPO}` })
-  await $.ui.input({ plugin: 'workbench', key: 'add-item', text: 'Retry stuck requests' })
+  await ui.input({ key: 'add-title', text: 'Retry stuck requests' })
   expect(files.get(`${REPO}/.claude/features.md`)).toBe(FEATURES)
   expect((await ui.find({ type: 'Text', text: /already has/ }))?.text).toBe(
     'stack already has "Retry stuck requests".',

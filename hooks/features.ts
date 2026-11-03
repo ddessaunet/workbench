@@ -77,15 +77,16 @@ export function removeFeature(text: string, id: string): string | null {
 // What Create empty list writes.
 export const NEW_LIST = '# Features\n'
 
-// The pane's Add field: the first line is the title, the lines below it the
-// brief. Null when there is no title.
-export function parseItemInput(value: string): { title: string; brief: string } | null {
-  const [title, ...brief] = value
+// The pane's Add fields, cleaned: the title on one line (a pasted newline is a
+// space), the brief without blank lines. Null when there is no title.
+export function itemFields(title: string, brief: string): { title: string; brief: string } | null {
+  const line = title.replace(/\s+/g, ' ').trim()
+  const lines = brief
     .split('\n')
-    .map(line => line.trim())
-    .filter(line => line !== '')
+    .map(one => one.trim())
+    .filter(one => one !== '')
 
-  return title ? { title, brief: brief.join('\n') } : null
+  return line ? { title: line, brief: lines.join('\n') } : null
 }
 
 // Adds an open item at the end of a list, in the format parseFeatures reads;

@@ -34,8 +34,9 @@ declare module 'claude-code' {
       // A repo's name, or 'all'.
       filter: string
       isShippedOpen: boolean
-      // The Add form: null closed, `repoPath` null while a repo is picked.
-      adding: { repoPath: string | null } | null
+      // The Add form: null closed, `repoPath` null while a repo is picked;
+      // `title` and `brief` hold its two fields' drafts while it is open.
+      adding: { repoPath: string | null; title: string; brief: string } | null
       // The item whose Remove was pressed once, by its started key; a second
       // press removes it.
       removing: string | null

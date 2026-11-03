@@ -5,9 +5,9 @@ import type { Pr, Repo, RepoFeature } from '../types'
 import {
   appendFeature,
   markDone,
+  itemFields,
   NEW_LIST,
   parseFeatures,
-  parseItemInput,
   removeFeature,
   slug,
 } from './features'
@@ -248,7 +248,13 @@ async function merge($: EngineInterface, pr: Pr, roots: string): Promise<void> {
 // With the filter on one repo, Add goes straight to its form; else to the picker.
 async function openAdd($: EngineInterface, shown: string): Promise<void> {
   const repo = (await read($, repos)).find(one => one.name === shown)
-  await update($, adding, () => ({ repoPath: repo?.path ?? null }))
+  await update($, adding, () => ({ repoPath: repo?.path ?? null, title: '', brief: '' }))
+}
+
+// Keeps one Add field's text as it is typed, so either field's Enter, or the
+// Add button, adds both.
+async function setDraft($: EngineInterface, field: 'title' | 'brief', value: string): Promise<void> {
+  await update($, adding, held => (held ? { ...held, [field]: value } : held))
 }
 
 // Reads one repo's list again after the pane wrote it, keeping the repos' order.
@@ -264,10 +270,11 @@ async function reloadRepo($: EngineInterface, repo: Repo): Promise<void> {
 }
 
 // The one write the pane makes into a repo: an item at the end of its list.
-async function addItem($: EngineInterface, repo: Repo, value: string): Promise<void> {
-  const item = parseItemInput(value)
+async function addItem($: EngineInterface, repo: Repo): Promise<void> {
+  const form = await read($, adding)
+  const item = form && itemFields(form.title, form.brief)
   if (!item) {
-    await update($, error, () => 'Add: the first line is the title, and it is empty.')
+    await update($, error, () => 'Add: the title is empty.')
     return
   }
   const id = slug(item.title)
@@ -563,7 +570,7 @@ export const register: Register = (on, options) => {
                 <Button
                   key={`add-to-${repo.path}`}
                   label={repo.hasList ? repo.name : `${repo.name} (new)`}
-                  onPress={() => update($, adding, () => ({ repoPath: repo.path }))}
+                  onPress={() => update($, adding, held => ({ title: '', brief: '', ...held, repoPath: repo.path }))}
                 />
               ))}
             <Button key="add-cancel" label="Cancel" dimColor onPress={() => update($, adding, () => null)} />
@@ -576,18 +583,39 @@ export const register: Register = (on, options) => {
               {!addTo.hasList && <Text dimColor>creates .claude/features.md</Text>}
             </Box>
             {Input ? (
-              <Input
-                key="add-item"
-                rows={3}
-                autoFocus
-                submitLabel="add"
-                placeholder="Title, then the brief on the lines below"
-                onSubmit={value => addItem($, addTo, value)}
-              />
+              <Box flexDirection="column">
+                <Input
+                  key="add-title"
+                  label="Title"
+                  autoFocus
+                  value={form?.title ?? ''}
+                  submitLabel="add"
+                  placeholder="Retry stuck requests"
+                  onInput={value => setDraft($, 'title', value)}
+                  onSubmit={async value => {
+                    await setDraft($, 'title', value)
+                    await addItem($, addTo)
+                  }}
+                />
+                <Input
+                  key="add-brief"
+                  label="Brief"
+                  rows={3}
+                  value={form?.brief ?? ''}
+                  submitLabel="add"
+                  placeholder="What it is and why (optional)"
+                  onInput={value => setDraft($, 'brief', value)}
+                  onSubmit={async value => {
+                    await setDraft($, 'brief', value)
+                    await addItem($, addTo)
+                  }}
+                />
+              </Box>
             ) : (
               <Text dimColor>Typing an item needs the desktop app or a terminal.</Text>
             )}
             <Box columnGap={1}>
+              {Input && <Button key="add-submit" label="Add" onPress={() => addItem($, addTo)} />}
               <Button key={`draft-${addTo.path}`} label="Draft with Claude" onPress={() => draft($, addTo)} />
               {!addTo.hasList && (
                 <Button
