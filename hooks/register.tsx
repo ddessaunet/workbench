@@ -533,7 +533,10 @@ export const register: Register = (on, options) => {
     // left, what the pointer reveals, and the status. The title's zero minWidth
     // lets it shrink below its text's length, which desktop otherwise refuses,
     // pushing the end out of the pane. Pressed, the details open beneath it,
-    // one row at a time. The reveal's Box has no key: one would scope its own
+    // one row at a time, in the same column as the lead and title so they
+    // start where it does, however wide the toggle draws, a line below it.
+    // The row holds its items to the top, so the toggle stays by the title as
+    // the details grow. The reveal's Box has no key: one would scope its own
     // hover, which a hidden Box never gets.
     const row = (
       key: string,
@@ -550,40 +553,41 @@ export const register: Register = (on, options) => {
       const isOpen = details !== null && openRow === key
 
       return (
-        <Box key={key} flexDirection="column">
-          <Box columnGap={1}>
-            <Box minWidth={1} marginRight={2} flexShrink={0}>
-              {details ? (
-                <Button
-                  key={`expand-${key}`}
-                  label={isOpen ? '▾' : '▸'}
-                  dimColor={!isOpen}
-                  onPress={() => update($, expanded, held => (held === key ? null : key))}
-                />
-              ) : mark}
-            </Box>
-            {lead}
-            <Box flexGrow={1} flexShrink={1} minWidth={0}>
-              <Text dimColor={isDim} wrap="wrap">{title}</Text>
-            </Box>
-            {reveal && <Box flexShrink={0} display="none" hover={{ display: 'flex' }}>{reveal}</Box>}
-            {status}
+        <Box key={key} columnGap={1} alignItems="flex-start">
+          <Box minWidth={1} marginRight={2} flexShrink={0}>
+            {details ? (
+              <Button
+                key={`expand-${key}`}
+                label={isOpen ? '▾' : '▸'}
+                dimColor={!isOpen}
+                onPress={() => update($, expanded, held => (held === key ? null : key))}
+              />
+            ) : mark}
           </Box>
-          {isOpen && <Box paddingLeft={4}>{details}</Box>}
+          <Box flexDirection="column" rowGap={1} flexGrow={1} flexShrink={1} minWidth={0}>
+            <Box columnGap={1}>
+              {lead}
+              <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                <Text dimColor={isDim} wrap="wrap">{title}</Text>
+              </Box>
+              {reveal && <Box flexShrink={0} display="none" hover={{ display: 'flex' }}>{reveal}</Box>}
+              {status}
+            </Box>
+            {isOpen && details}
+          </Box>
         </Box>
       )
     }
 
-    // A feature's details: its brief and where it is, with what to do with it
-    // stacked beside. The brief's zero minWidth lets it wrap in what the
-    // buttons leave; the gap keeps desktop's taller buttons from touching.
+    // A feature's details: its brief and where it is, then a line below, what
+    // to do with it, at the right edge.
     const featureDetails = (f: RepoFeature, actions: RenderElement[]) => (
-      <Box columnGap={2}>
-        <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+      <Box flexDirection="column" rowGap={1}>
+        <Box flexDirection="column">
           {f.brief ? <Text wrap="wrap">{f.brief}</Text> : <Text dimColor>No brief yet.</Text>}
           {!isFiltered && <Text dimColor>{nameOf(f.repoPath)}</Text>}
         </Box>
-        <Box flexDirection="column" rowGap={1} flexShrink={0}>
+        <Box columnGap={1} flexWrap="wrap" justifyContent="flex-end">
           {actions}
         </Box>
       </Box>
