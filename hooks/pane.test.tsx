@@ -161,6 +161,45 @@ test('the pane lists features, PRs and reviews, and Start hands Claude a prompt'
   await ui.unmount()
 })
 
+test("the pane opens on the session's repo, a worktree's too, and All repos still shows every one", async ($, on) => {
+  mock.clock(on)
+
+  on('command.register', () => ({ value: { command: 'workbench' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  // A worktree answers with its main tree's root.
+  on('session.repo', () => ({ value: { root: REPO, remote: 'git@github.com:me/stack.git', internal: false } }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('store.get', () => ({ value: undefined }))
+  on('fs.exists', (_, e) => ({
+    value: e.path === `${REPO}/.git` || e.path === `${REPO}/.claude/features.md`,
+  }))
+  on('fs.list', (_, e) => ({
+    value:
+      e.path === '/home/me/repositories'
+        ? [{ name: 'personal', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }]
+        : e.path === '/home/me/repositories/personal'
+          ? [{ name: 'stack', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }]
+          : [],
+  }))
+  on('fs.read', () => ({ value: FEATURES }))
+  on('process.run', (_, e) => ({ value: ran(e.argv[0] === 'git' ? 'git@github.com:me/stack.git\n' : GH) }))
+
+  await $.session.start({ cwd: `${REPO}/.claude/worktrees/fix`, surface: 'desktop', isInteractive: true })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect((await ui.find({ key: 'filter' }))?.props.value).toBe('stack')
+    expect((await ui.find({ type: 'Text', text: /Retry stuck requests/ }))?.text).toBe('Retry stuck requests')
+    expect(await ui.find({ type: 'Text', text: /payment retries/ })).toBe(undefined)
+    expect((await ui.find({ type: 'Link', text: /#86/ }))?.text).toBe('#86')
+    await ui.select({ key: 'filter', value: 'all' })
+    expect((await ui.find({ type: 'Text', text: /payment retries/ }))?.text).toBe('Add payment retries')
+    await ui.select({ key: 'filter', value: 'stack' })
+    await ui.unmount()
+  }
+})
+
 test('Add writes an item into a repo list, Create starts one, Draft hands Claude a prompt', async ($, on) => {
   mock.clock(on)
   const EMPTY = '/home/me/repositories/personal/empty'
