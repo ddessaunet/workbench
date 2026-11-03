@@ -650,7 +650,7 @@ export const register: Register = (on, options) => {
             ) : (
               <Text dimColor>Typing an item needs the desktop app or a terminal.</Text>
             )}
-            <Box columnGap={1}>
+            <Box columnGap={1} justifyContent="center">
               <Button key={`draft-${addTo.path}`} label="Draft with Claude" onPress={() => draft($, addTo)} />
               {!addTo.hasList && (
                 <Button
