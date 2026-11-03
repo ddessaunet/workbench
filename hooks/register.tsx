@@ -391,7 +391,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const elements = $.ui.resolve(e)
-    const { Box, Text, Button, Link } = elements
+    const { Box, Text, Button, Link, Markdown } = elements
     // The mobile app draws no fields (its elements still name them, drawing
     // nothing): it gets the filter as buttons, and no Add field.
     const hasFields = e.surface !== 'mobile'
@@ -492,18 +492,25 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    // A row: a toggle when it has details (its slot kept empty when not, so
-    // leads line up), the lead, the title wrapping in what is left, and the
-    // status. The title's zero minWidth lets it shrink below its text's length,
-    // which desktop otherwise refuses, pushing the end out of the pane.
-    // Pressed, the details open beneath it, one row at a time.
+    // A row: a toggle when it has details, else its mark (the slot kept empty
+    // with neither, so leads line up), the lead, the title wrapping in what is
+    // left, what the pointer reveals, and the status. The title's zero minWidth
+    // lets it shrink below its text's length, which desktop otherwise refuses,
+    // pushing the end out of the pane. Pressed, the details open beneath it,
+    // one row at a time. The reveal's Box has no key: one would scope its own
+    // hover, which a hidden Box never gets; `isShown` keeps it drawn.
     const row = (
       key: string,
       lead: RenderElement | null,
       title: string,
       status: RenderElement | null,
       details: RenderElement | null,
-      isDim = false,
+      {
+        isDim = false,
+        mark = null,
+        reveal = null,
+        isShown = false,
+      }: { isDim?: boolean; mark?: RenderElement | null; reveal?: RenderElement | null; isShown?: boolean } = {},
     ) => {
       const isOpen = details !== null && openRow === key
 
@@ -511,19 +518,24 @@ export const register: Register = (on, options) => {
         <Box key={key} flexDirection="column">
           <Box columnGap={1}>
             <Box minWidth={1} marginRight={2} flexShrink={0}>
-              {details && (
+              {details ? (
                 <Button
                   key={`expand-${key}`}
                   label={isOpen ? '▾' : '▸'}
                   dimColor={!isOpen}
                   onPress={() => update($, expanded, held => (held === key ? null : key))}
                 />
-              )}
+              ) : mark}
             </Box>
             {lead}
             <Box flexGrow={1} flexShrink={1} minWidth={0}>
               <Text dimColor={isDim} wrap="wrap">{title}</Text>
             </Box>
+            {reveal && (isShown ? (
+              <Box flexShrink={0}>{reveal}</Box>
+            ) : (
+              <Box flexShrink={0} display="none" hover={{ display: 'flex' }}>{reveal}</Box>
+            ))}
             {status}
           </Box>
           {isOpen && <Box paddingLeft={4}>{details}</Box>}
@@ -676,22 +688,30 @@ export const register: Register = (on, options) => {
             ),
           ),
           // Your own PR is merged where another's is reviewed; a draft has neither.
+          // Its square is green when the ✓ is, and Merge shows under the pointer,
+          // or while it waits for the second press. Merge is a link, a line tall
+          // where a Button is taller, so showing it leaves the row's height; a
+          // press merges, and a modified click opens the PR.
           ...mine.slice(0, ROWS).map(pr =>
             row(
               `mine-${pr.url}`,
               prLead(pr),
               pr.title,
               ciMark(pr),
-              pr.isDraft ? null : (
-                <Box columnGap={1}>
-                  <Button
+              null,
+              {
+                mark: !pr.isDraft && pr.ci === 'passing' ? <Text color="success">■</Text> : <Text dimColor>■</Text>,
+                reveal: pr.isDraft ? null : (
+                  <Markdown
                     key={`merge-${pr.url}`}
-                    label={mergingUrl === pr.url ? 'Really merge' : 'Merge'}
+                    text={`[${mergingUrl === pr.url ? 'Really merge' : 'Merge'}](${pr.url})`}
                     dimColor={mergingUrl !== pr.url}
-                    onPress={() => merge($, pr, roots)}
+                    pressableLinks={[pr.url]}
+                    onLinkPress={() => merge($, pr, roots)}
                   />
-                </Box>
-              ),
+                ),
+                isShown: mergingUrl === pr.url,
+              },
             ),
           ),
         ])}
@@ -729,7 +749,7 @@ export const register: Register = (on, options) => {
               pr.title,
               null,
               null,
-              true,
+              { isDim: true },
             ),
           ))}
 
