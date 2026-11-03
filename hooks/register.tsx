@@ -257,6 +257,14 @@ async function openAdd($: EngineInterface, shown: string): Promise<void> {
   await update($, adding, () => ({ repoPath: repo?.path ?? null, title: '', brief: '' }))
 }
 
+// Another repo in the filter closes the Add form and drops its draft, so Add starts
+// over for that repo; picking the same repo again keeps the draft.
+async function pickFilter($: EngineInterface, name: string): Promise<void> {
+  if ((await read($, filter)) === name) return
+  await update($, filter, () => name)
+  await update($, adding, () => null)
+}
+
 // Keeps one Add field's text as it is typed, so Enter in either field adds both.
 async function setDraft($: EngineInterface, field: 'title' | 'brief', value: string): Promise<void> {
   await update($, adding, held => (held ? { ...held, [field]: value } : held))
@@ -563,7 +571,7 @@ export const register: Register = (on, options) => {
             label="Repo"
             options={filterNames.map(name => ({ value: name, label: filterLabel(name) }))}
             value={shown}
-            onSelect={value => update($, filter, () => value)}
+            onSelect={value => pickFilter($, value)}
           />
         ) : (
           <Box flexWrap="wrap" columnGap={1}>
@@ -572,7 +580,7 @@ export const register: Register = (on, options) => {
                 key={`filter-${name}`}
                 label={filterLabel(name)}
                 dimColor={shown !== name}
-                onPress={() => update($, filter, () => name)}
+                onPress={() => pickFilter($, name)}
               />
             ))}
           </Box>

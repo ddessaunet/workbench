@@ -216,6 +216,35 @@ test('Add writes an item into a repo list, Create starts one, Draft hands Claude
     await ui.unmount()
   }
 
+  // Another repo in the filter closes the form and drops its draft; the same one keeps it.
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'add-open' })
+    await ui.press({ key: `add-to-${EMPTY}` })
+    await ui.input({ key: 'add-title', text: 'Half typed', kind: 'change' })
+    await ui.select({ key: 'filter', value: 'all' })
+    expect((await ui.find({ key: 'add-title' }))?.props.value).toBe('Half typed')
+    await ui.select({ key: 'filter', value: 'stack' })
+    expect(await ui.find({ key: 'add-title' })).toBe(undefined)
+    expect(await ui.find({ type: 'Text', text: /Add to/ })).toBe(undefined)
+    await ui.press({ key: 'add-open' })
+    expect((await ui.find({ type: 'Text', text: /Add to/ }))?.text).toBe('Add to stack')
+    expect((await ui.find({ key: 'add-title' }))?.props.value).toBe('')
+    await ui.press({ key: 'add-cancel' })
+    await ui.select({ key: 'filter', value: 'all' })
+    await ui.unmount()
+  }
+
+  // The mobile app's filter buttons close it too.
+  const phone = await $.ui.mount({ ...PANE, surface: 'mobile' })
+  await phone.press({ key: 'add-open' })
+  await phone.press({ key: 'filter-all' })
+  expect(await phone.find({ key: `add-to-${EMPTY}` })).not.toBe(undefined)
+  await phone.press({ key: 'filter-stack' })
+  expect(await phone.find({ key: `add-to-${EMPTY}` })).toBe(undefined)
+  await phone.press({ key: 'filter-all' })
+  await phone.unmount()
+
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.press({ key: 'add-open' })
   await ui.press({ key: `add-to-${EMPTY}` })
