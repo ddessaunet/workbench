@@ -115,10 +115,10 @@ test('the pane lists features, PRs and reviews, and Start hands Claude a prompt'
     expect((await ui.find({ key: `start-${REPO}#retry-stuck-requests` }))?.text).toBe('Start')
     await ui.press({ key: `expand-next-${REPO}#retry-stuck-requests` })
     expect(await ui.find({ key: `start-${REPO}#retry-stuck-requests` })).toBe(undefined)
-    // The toggle comes first, then the PR's link, in a column as wide as the
+    // Your PR's square comes first, then its link, in a column as wide as the
     // widest label (portal#12).
     const mine = await ui.find({ key: 'mine-https://github.com/me/stack/pull/86' })
-    expect(mine?.text).toMatch(/^▸\s*stack#86/)
+    expect(mine?.text).toMatch(/^■\s*stack#86/)
     expect(await ui.find({ type: 'Box', text: /^stack#86$/ })).toMatchObject({ props: { width: 9 } })
     await ui.unmount()
   }
@@ -504,9 +504,10 @@ test('one repo that cannot be read leaves the others and GitHub shown', async ($
 })
 
 test('your PR has Merge where another\'s has Review; pressed twice, it merges the way its repo allows', async ($, on) => {
-  mock.clock(on)
+  const clock = mock.clock(on)
   const runs: string[][] = []
   let mergeFails = false
+  let checks = 'FAILURE'
 
   on('command.register', () => ({ value: { command: 'workbench' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -524,13 +525,16 @@ test('your PR has Merge where another\'s has Review; pressed twice, it merges th
       return { value: mergeFails ? { ...ran(''), exitCode: 1, stderr: 'Pull request is not mergeable\n' } : ran('') }
     }
 
-    return { value: ran(GH) }
+    return { value: ran(GH.replace('FAILURE', checks)) }
   })
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const URL = 'https://github.com/me/stack/pull/86'
   const REVIEW = 'https://github.com/team/portal/pull/12'
   const merges = () => runs.filter(argv => argv[1] === 'pr')
+  // Merge is a link to the PR the plugin answers.
+  const pressMerge = (ui: { press: (target: { key: string; link: { href: string } }) => Promise<unknown> }) =>
+    ui.press({ key: `merge-${URL}`, link: { href: URL } })
 
   for (const surface of ['terminal', 'desktop'] as const) {
     runs.length = 0
@@ -541,20 +545,29 @@ test('your PR has Merge where another\'s has Review; pressed twice, it merges th
     expect(await ui.find({ key: `merge-${REVIEW}` })).toBe(undefined)
     await ui.press({ key: `expand-review-${REVIEW}` })
 
-    // Yours is merged, not reviewed.
-    await ui.press({ key: `expand-mine-${URL}` })
+    // Yours is merged, not reviewed, from the row itself: its failing checks
+    // leave the square dim, and Merge waits for the pointer.
+    expect(await ui.find({ key: `expand-mine-${URL}` })).toBe(undefined)
+    expect((await ui.find({ type: 'Text', text: '■' }))?.props).toMatchObject({ dimColor: true })
     expect(await ui.find({ key: `do-review-${URL}` })).toBe(undefined)
-    expect((await ui.find({ key: `merge-${URL}` }))?.text).toBe('Merge')
+    expect((await ui.find({ key: `merge-${URL}` }))?.text).toBe(`[Merge](${URL})`)
+    // `find` carries props, not the hover that reveals it.
+    expect((await ui.find({ type: 'Box', text: /^\[Merge\]/ }))?.props.display).toBe('none')
 
-    await ui.press({ key: `merge-${URL}` })
-    expect((await ui.find({ key: `merge-${URL}` }))?.text).toBe('Really merge')
+    // Asked, it still hides with the pointer gone, and the ask lapses.
+    await pressMerge(ui)
+    expect((await ui.find({ key: `merge-${URL}` }))?.text).toBe(`[Really merge](${URL})`)
+    expect((await ui.find({ type: 'Box', text: /^\[Really merge\]/ }))?.props.display).toBe('none')
+    await clock.advance(5000)
+    expect((await ui.find({ key: `merge-${URL}` }))?.text).toBe(`[Merge](${URL})`)
     expect(merges()).toEqual([])
 
-    await ui.press({ key: `merge-${URL}` })
+    // Two presses in time merge.
+    await pressMerge(ui)
+    await pressMerge(ui)
     expect(merges()).toEqual([['gh', 'pr', 'merge', URL, '--merge']])
     // Then the lists are read again.
     expect(runs.at(-1)?.[2]).toBe('graphql')
-    await ui.press({ key: `expand-mine-${URL}` })
     await ui.unmount()
   }
 
@@ -562,10 +575,14 @@ test('your PR has Merge where another\'s has Review; pressed twice, it merges th
   mergeFails = true
   runs.length = 0
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await ui.press({ key: `expand-mine-${URL}` })
-  await ui.press({ key: `merge-${URL}` })
-  await ui.press({ key: `merge-${URL}` })
+  await pressMerge(ui)
+  await pressMerge(ui)
   expect(runs.at(-1)?.[1]).toBe('pr')
   expect(await ui.find({ type: 'Text', text: /Merge me\/stack#86: Pull request is not mergeable/ })).toBeTruthy()
+
+  // Once its checks pass, the square is green.
+  checks = 'SUCCESS'
+  await ui.press({ key: 'refresh' })
+  expect((await ui.find({ type: 'Text', text: '■' }))?.props.color).toBe('success')
   await ui.unmount()
 })
