@@ -251,8 +251,7 @@ async function openAdd($: EngineInterface, shown: string): Promise<void> {
   await update($, adding, () => ({ repoPath: repo?.path ?? null, title: '', brief: '' }))
 }
 
-// Keeps one Add field's text as it is typed, so either field's Enter, or the
-// Add button, adds both.
+// Keeps one Add field's text as it is typed, so Enter in either field adds both.
 async function setDraft($: EngineInterface, field: 'title' | 'brief', value: string): Promise<void> {
   await update($, adding, held => (held ? { ...held, [field]: value } : held))
 }
@@ -558,7 +557,7 @@ export const register: Register = (on, options) => {
         <Box marginTop={1} columnGap={1}>
           <Text bold>Up next </Text>
           <Text dimColor>{upNext.length}</Text>
-          <Button key="add-open" label="Add" dimColor onPress={() => openAdd($, shown)} />
+          {!form && <Button key="add-open" label="Add" dimColor onPress={() => openAdd($, shown)} />}
         </Box>
         {rule(true)}
         {form && !addTo && (
@@ -615,7 +614,6 @@ export const register: Register = (on, options) => {
               <Text dimColor>Typing an item needs the desktop app or a terminal.</Text>
             )}
             <Box columnGap={1}>
-              {Input && <Button key="add-submit" label="Add" onPress={() => addItem($, addTo)} />}
               <Button key={`draft-${addTo.path}`} label="Draft with Claude" onPress={() => draft($, addTo)} />
               {!addTo.hasList && (
                 <Button

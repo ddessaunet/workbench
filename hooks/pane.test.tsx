@@ -200,13 +200,19 @@ test('Add writes an item into a repo list, Create starts one, Draft hands Claude
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     await ui.press({ key: 'add-open' })
+    // While the picker or the form is open, Cancel closes it and the header Add hides.
+    expect(await ui.find({ key: 'add-open' })).toBe(undefined)
     await ui.press({ key: `add-to-${EMPTY}` })
     expect((await ui.find({ type: 'Text', text: /Add to/ }))?.text).toBe('Add to empty')
     expect((await ui.find({ type: 'Text', text: /creates/ }))?.text).toBe('creates .claude/features.md')
     expect(await ui.find({ key: 'add-title' })).not.toBe(undefined)
     expect(await ui.find({ key: 'add-brief' })).not.toBe(undefined)
+    expect(await ui.find({ key: 'add-open' })).toBe(undefined)
+    // Enter in a field adds; the form has no Add button of its own.
+    expect(await ui.find({ key: 'add-submit' })).toBe(undefined)
     await ui.press({ key: 'add-cancel' })
     expect(await ui.find({ type: 'Text', text: /Add to/ })).toBe(undefined)
+    expect(await ui.find({ key: 'add-open' })).not.toBe(undefined)
     await ui.unmount()
   }
 
@@ -217,13 +223,13 @@ test('Add writes an item into a repo list, Create starts one, Draft hands Claude
   expect(files.get(`${EMPTY}/.claude/features.md`)).toBe('# Features\n')
   expect(await ui.find({ type: 'Text', text: /creates/ })).toBe(undefined)
 
-  await ui.press({ key: 'add-submit' })
+  await ui.input({ key: 'add-title', text: '' })
   expect((await ui.find({ type: 'Text', text: /title is empty/ }))?.text).toBe('Add: the title is empty.')
   expect(files.get(`${EMPTY}/.claude/features.md`)).toBe('# Features\n')
 
   await ui.input({ key: 'add-title', text: 'New thing', kind: 'change' })
-  await ui.input({ key: 'add-brief', text: 'Its brief.', kind: 'change' })
-  await ui.press({ key: 'add-submit' })
+  // Enter in the brief carries the title too.
+  await ui.input({ key: 'add-brief', text: 'Its brief.' })
   expect(files.get(`${EMPTY}/.claude/features.md`)).toBe('# Features\n\n- [ ] New thing\n  Its brief.\n')
   expect((await ui.find({ type: 'Text', text: /New thing/ }))?.text).toBe('New thing')
   expect(await ui.find({ type: 'Text', text: /Add to/ })).toBe(undefined)

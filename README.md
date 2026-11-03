@@ -6,8 +6,8 @@ the chat that shows, across every repository on this machine:
 - **Up next**: the open items of each repo's `.claude/features.md`, with a
   **Start** button that has Claude start a session for one, in that repo, in its own
   worktree. **Add** opens a form for a repo (the filtered one, or one you pick):
-  fill in a title and, if you like, a brief, and **Add** (or Enter in either field)
-  adds it to that repo's list. **Create empty list** starts one for a repo that has none, and **Draft with
+  fill in a title and, if you like, a brief, and Enter in either field adds it to
+  that repo's list. **Create empty list** starts one for a repo that has none, and **Draft with
   Claude** has Claude read the repo and propose items, which it writes once you
   agree. Each row is one line; the **▸** at its start opens the brief and buttons beneath it,
   where **Done** marks the item `[x]` and **Remove**, pressed twice, deletes it and
