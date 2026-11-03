@@ -151,8 +151,8 @@ test('the pane lists features, PRs and reviews, and Start hands Claude a prompt'
   expect(Object.keys(store.get('started') as object)).toEqual([`${REPO}#retry-stuck-requests`])
   expect((await ui.find({ key: `going-${REPO}#retry-stuck-requests` }))?.text).toContain('just now')
 
-  await ui.press({ key: 'expand-review-https://github.com/team/portal/pull/12' })
-  await ui.press({ key: 'do-review-https://github.com/team/portal/pull/12' })
+  const review = 'https://github.com/team/portal/pull/12'
+  await ui.press({ key: `do-review-${review}`, link: { href: review } })
   expect(prompts[1]).toContain('team/portal#12')
   await ui.unmount()
 })
@@ -568,11 +568,16 @@ test('your PR has Merge where another\'s has Review; pressed twice, it merges th
   for (const surface of ['terminal', 'desktop'] as const) {
     runs.length = 0
     const ui = await $.ui.mount({ ...PANE, surface })
-    // Another's PR is reviewed, not merged.
-    await ui.press({ key: `expand-review-${REVIEW}` })
-    expect((await ui.find({ key: `do-review-${REVIEW}` }))?.text).toBe('Review')
+    // Another's PR is reviewed, not merged, from the row itself: it leads with
+    // the square, dim with no checks, ends with its author, and Review waits
+    // for the pointer.
+    expect(await ui.find({ key: `expand-review-${REVIEW}` })).toBe(undefined)
+    const reviewRow = await ui.find({ key: `review-${REVIEW}` })
+    expect(reviewRow?.text).toMatch(/^■.*teammate$/)
+    expect((await ui.findAll({ type: 'Text', text: '■' })).at(-1)?.props).toMatchObject({ dimColor: true })
+    expect((await ui.find({ key: `do-review-${REVIEW}` }))?.text).toBe(`[Review](${REVIEW})`)
+    expect((await ui.find({ type: 'Box', text: /^\[Review\]/ }))?.props.display).toBe('none')
     expect(await ui.find({ key: `merge-${REVIEW}` })).toBe(undefined)
-    await ui.press({ key: `expand-review-${REVIEW}` })
 
     // Yours is merged, not reviewed, from the row itself: its failing checks
     // leave the square dim, and Merge waits for the pointer.
