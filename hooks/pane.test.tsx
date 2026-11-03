@@ -222,14 +222,19 @@ test('Add writes an item into a repo list, Create starts one, Draft hands Claude
     await ui.press({ key: 'add-open' })
     await ui.press({ key: `add-to-${EMPTY}` })
     await ui.input({ key: 'add-title', text: 'Half typed', kind: 'change' })
+    // Typing is kept off what the pane draws, so the field keeps its own text.
+    expect((await ui.find({ key: 'add-title' }))?.props.value).toBe(undefined)
     await ui.select({ key: 'filter', value: 'all' })
-    expect((await ui.find({ key: 'add-title' }))?.props.value).toBe('Half typed')
+    expect(await ui.find({ key: 'add-title' })).not.toBe(undefined)
     await ui.select({ key: 'filter', value: 'stack' })
     expect(await ui.find({ key: 'add-title' })).toBe(undefined)
     expect(await ui.find({ type: 'Text', text: /Add to/ })).toBe(undefined)
     await ui.press({ key: 'add-open' })
     expect((await ui.find({ type: 'Text', text: /Add to/ }))?.text).toBe('Add to stack')
-    expect((await ui.find({ key: 'add-title' }))?.props.value).toBe('')
+    // The form opened again starts with no title.
+    await ui.input({ key: 'add-brief', text: 'A brief.' })
+    expect((await ui.find({ type: 'Text', text: /title is empty/ }))?.text).toBe('Add: the title is empty.')
+    expect(files.get(`${REPO}/.claude/features.md`)).toBe(FEATURES)
     await ui.press({ key: 'add-cancel' })
     await ui.select({ key: 'filter', value: 'all' })
     await ui.unmount()
@@ -257,7 +262,8 @@ test('Add writes an item into a repo list, Create starts one, Draft hands Claude
   expect(files.get(`${EMPTY}/.claude/features.md`)).toBe('# Features\n')
 
   await ui.input({ key: 'add-title', text: 'New thing', kind: 'change' })
-  // Enter in the brief carries the title too.
+  // A redraw from elsewhere keeps the draft; Enter in the brief carries the title too.
+  await ui.press({ key: 'refresh' })
   await ui.input({ key: 'add-brief', text: 'Its brief.' })
   expect(files.get(`${EMPTY}/.claude/features.md`)).toBe('# Features\n\n- [ ] New thing\n  Its brief.\n')
   expect((await ui.find({ type: 'Text', text: /New thing/ }))?.text).toBe('New thing')
