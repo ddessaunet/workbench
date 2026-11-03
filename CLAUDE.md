@@ -21,7 +21,8 @@ no npm packages. These bite:
    their types from `../types`.
 3. **Elements come from the surface**, `$.ui.resolve(e)`, and each surface draws
    them its own way; tests mount the pane on `terminal` and `desktop` both.
-4. **The plugin cannot start a session.** Buttons that start work send a prompt
+4. **The plugin cannot start a session.** Buttons that start work either copy a
+   prompt for the owner to paste into a new session (`$.ui.copy`) or send one
    (`$.prompt.submit`) and Claude starts the session. Keep those prompts in
    `hooks/prompts.ts`.
 5. **Never write into another repo's checkout**, except its `.claude/features.md`

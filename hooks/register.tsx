@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderElement } from 'claude-code'
+import type { EngineInterface, Register, RenderElement, UiCopyArgs } from 'claude-code'
 
 import type { Pr, Repo, RepoFeature } from '../types'
 import {
@@ -12,7 +12,7 @@ import {
   slug,
 } from './features'
 import { mergeArgv, mergeMethod, mergeSettingsArgv, parsePrs, searchArgv } from './github'
-import { draftPrompt, reviewPrompt, startPrompt } from './prompts'
+import { draftPrompt, reviewPrompt, sessionPrompt } from './prompts'
 import { parseRoots, remoteSlug } from './repos'
 
 const PANE = 'workbench'
@@ -193,10 +193,17 @@ async function refresh($: EngineInterface, roots: string): Promise<void> {
   }
 }
 
-async function start($: EngineInterface, feature: RepoFeature): Promise<void> {
+// Copy puts the feature's prompt on the clipboard for a new session the owner
+// opens, and counts it as started once the copy took.
+async function copyToStart($: EngineInterface, feature: RepoFeature, surface: UiCopyArgs['surface']): Promise<void> {
   const repo = (await read($, repos)).find(one => one.path === feature.repoPath)
   if (!repo) return
-  await $.prompt.submit({ text: startPrompt(feature, repo) })
+  const copied = await $.ui.copy({ text: sessionPrompt(feature, repo), surface })
+  if (!copied.isCopied) {
+    $.ui.toast(`Couldn't copy the prompt (${copied.reason})`)
+    return
+  }
+  $.ui.toast('Prompt copied: open a new session and paste it')
   const now = await $.clock.now()
   const next = await update($, started, map => ({ ...map, [startedKey(feature)]: now }))
   await $.store.set('started', next)
@@ -682,7 +689,7 @@ export const register: Register = (on, options) => {
             f.title,
             null,
             featureDetails(f, [
-              <Button key={`start-${startedKey(f)}`} label="Start" onPress={() => start($, f)} />,
+              <Button key={`copy-${startedKey(f)}`} label="Copy" onPress={press => copyToStart($, f, press.surface)} />,
               ...itemButtons(f),
             ]),
           ),
