@@ -478,17 +478,15 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    const itemButtons = (f: RepoFeature) => (
-      <Box columnGap={1}>
-        <Button key={`done-${startedKey(f)}`} label="Done" dimColor onPress={() => editItem($, f, markDone)} />
-        <Button
-          key={`remove-${startedKey(f)}`}
-          label={removingKey === startedKey(f) ? 'Really remove' : 'Remove'}
-          dimColor={removingKey !== startedKey(f)}
-          onPress={() => remove($, f)}
-        />
-      </Box>
-    )
+    const itemButtons = (f: RepoFeature) => [
+      <Button key={`done-${startedKey(f)}`} label="Done" dimColor onPress={() => editItem($, f, markDone)} />,
+      <Button
+        key={`remove-${startedKey(f)}`}
+        label={removingKey === startedKey(f) ? 'Really remove' : 'Remove'}
+        dimColor={removingKey !== startedKey(f)}
+        onPress={() => remove($, f)}
+      />,
+    ]
 
     const ciMark = (pr: Pr) =>
       pr.isDraft ? <Text dimColor>draft</Text>
@@ -560,12 +558,16 @@ export const register: Register = (on, options) => {
       )
     }
 
-    // A feature's details: its brief, then where it is and what to do with it.
-    const featureDetails = (f: RepoFeature, actions: RenderElement) => (
-      <Box flexDirection="column">
-        {f.brief ? <Text wrap="wrap">{f.brief}</Text> : <Text dimColor>No brief yet.</Text>}
-        <Box columnGap={1} flexWrap="wrap">
+    // A feature's details: its brief and where it is, with what to do with it
+    // stacked beside. The brief's zero minWidth lets it wrap in what the
+    // buttons leave; the gap keeps desktop's taller buttons from touching.
+    const featureDetails = (f: RepoFeature, actions: RenderElement[]) => (
+      <Box columnGap={2}>
+        <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+          {f.brief ? <Text wrap="wrap">{f.brief}</Text> : <Text dimColor>No brief yet.</Text>}
           {!isFiltered && <Text dimColor>{nameOf(f.repoPath)}</Text>}
+        </Box>
+        <Box flexDirection="column" rowGap={1} flexShrink={0}>
           {actions}
         </Box>
       </Box>
@@ -670,13 +672,10 @@ export const register: Register = (on, options) => {
             null,
             f.title,
             null,
-            featureDetails(
-              f,
-              <Box columnGap={1}>
-                <Button key={`start-${startedKey(f)}`} label="Start" onPress={() => start($, f)} />
-                {itemButtons(f)}
-              </Box>,
-            ),
+            featureDetails(f, [
+              <Button key={`start-${startedKey(f)}`} label="Start" onPress={() => start($, f)} />,
+              ...itemButtons(f),
+            ]),
           ),
         ))}
 
@@ -688,18 +687,15 @@ export const register: Register = (on, options) => {
             null,
             f.title,
             <Text dimColor>{ago(startedMap[startedKey(f)] ?? null, now)}</Text>,
-            featureDetails(
-              f,
-              <Box columnGap={1}>
-                <Button
-                  key={`unstart-${startedKey(f)}`}
-                  label="Back to queue"
-                  dimColor
-                  onPress={() => unstart($, f)}
-                />
-                {itemButtons(f)}
-              </Box>,
-            ),
+            featureDetails(f, [
+              <Button
+                key={`unstart-${startedKey(f)}`}
+                label="Back to queue"
+                dimColor
+                onPress={() => unstart($, f)}
+              />,
+              ...itemButtons(f),
+            ]),
           ),
         ))}
 
