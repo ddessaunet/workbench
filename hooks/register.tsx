@@ -583,7 +583,7 @@ export const register: Register = (on, options) => {
               {!addTo.hasList && <Text dimColor>creates .claude/features.md</Text>}
             </Box>
             {Input ? (
-              <Box flexDirection="column">
+              <Box flexDirection="column" rowGap={1}>
                 <Input
                   key="add-title"
                   label="Title"
