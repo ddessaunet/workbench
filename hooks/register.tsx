@@ -491,6 +491,9 @@ export const register: Register = (on, options) => {
       : pr.ci === 'failing' ? <Text color="error">✗</Text>
       : pr.ci === 'pending' ? <Text color="warning">●</Text>
       : null
+    // A PR row's lead mark: green when the ✓ is, dim otherwise.
+    const ciSquare = (pr: Pr) =>
+      !pr.isDraft && pr.ci === 'passing' ? <Text color="success">■</Text> : <Text dimColor>■</Text>
 
     // With one repo picked, every row is in it: the repo name says nothing.
     const isFiltered = shown !== 'all'
@@ -709,7 +712,7 @@ export const register: Register = (on, options) => {
               ciMark(pr),
               null,
               {
-                mark: !pr.isDraft && pr.ci === 'passing' ? <Text color="success">■</Text> : <Text dimColor>■</Text>,
+                mark: ciSquare(pr),
                 reveal: pr.isDraft ? null : (
                   <Markdown
                     key={`merge-${pr.url}`}
@@ -726,16 +729,27 @@ export const register: Register = (on, options) => {
 
         {header('Needs your review', toReview.length)}
         {toReview.length === 0 && <Text dimColor>No review requests.</Text>}
+        {/* Another's PR leads with the same square and ends with its author;
+            Review is a link that shows under the pointer, as Merge does. */}
         {separated(toReview.slice(0, ROWS).map(pr =>
           row(
             `review-${pr.url}`,
             prLead(pr),
             pr.title,
+            <Text dimColor>{pr.author}</Text>,
             null,
-            <Box columnGap={1}>
-              <Text dimColor>{pr.author}</Text>
-              <Button key={`do-review-${pr.url}`} label="Review" onPress={() => review($, pr)} />
-            </Box>,
+            {
+              mark: ciSquare(pr),
+              reveal: (
+                <Markdown
+                  key={`do-review-${pr.url}`}
+                  text={`[Review](${pr.url})`}
+                  dimColor
+                  pressableLinks={[pr.url]}
+                  onLinkPress={() => review($, pr)}
+                />
+              ),
+            },
           ),
         ))}
 

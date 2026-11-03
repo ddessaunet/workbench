@@ -18,8 +18,9 @@ the chat that shows, across every repository on this machine:
   **Merge** while you point at the row; pressed twice, it merges the PR with
   `gh pr merge` the first way its repo allows (squash, then a merge commit, then
   a rebase). Drafts have no Merge.
-- **Needs your review**: PRs where your review is requested, with a **Review**
-  button that has Claude start a review session.
+- **Needs your review**: PRs where your review is requested. Each leads with the
+  same **■** and ends with its author, and shows **Review** while you point at
+  the row, which has Claude start a review session.
 - **Shipped this week**: your PRs merged in the last seven days.
 
 The pane works in the Claude desktop app's Code tab and in a terminal `claude`.
