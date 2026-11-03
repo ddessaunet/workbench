@@ -32,6 +32,7 @@ const error = atom({ plugin: 'workbench', key: 'error' } as const, null)
 const filter = atom({ plugin: 'workbench', key: 'filter' } as const, 'all')
 const isShippedOpen = atom({ plugin: 'workbench', key: 'isShippedOpen' } as const, false)
 const adding = atom({ plugin: 'workbench', key: 'adding' } as const, null)
+const addDraft = atom({ plugin: 'workbench', key: 'addDraft' } as const, { title: '', brief: '' })
 const removing = atom({ plugin: 'workbench', key: 'removing' } as const, null)
 const merging = atom({ plugin: 'workbench', key: 'merging' } as const, null)
 const expanded = atom({ plugin: 'workbench', key: 'expanded' } as const, null)
@@ -252,9 +253,11 @@ async function merge($: EngineInterface, pr: Pr, roots: string): Promise<void> {
 }
 
 // With the filter on one repo, Add goes straight to its form; else to the picker.
+// Opening is the one way into the form, so the draft starts over here.
 async function openAdd($: EngineInterface, shown: string): Promise<void> {
   const repo = (await read($, repos)).find(one => one.name === shown)
-  await update($, adding, () => ({ repoPath: repo?.path ?? null, title: '', brief: '' }))
+  await update($, addDraft, () => ({ title: '', brief: '' }))
+  await update($, adding, () => ({ repoPath: repo?.path ?? null }))
 }
 
 // Another repo in the filter closes the Add form and drops its draft, so Add starts
@@ -266,8 +269,10 @@ async function pickFilter($: EngineInterface, name: string): Promise<void> {
 }
 
 // Keeps one Add field's text as it is typed, so Enter in either field adds both.
+// The pane draws nothing from it: a keystroke that drew the form again would
+// hand the field back its own text, which blinks it and can drop a key.
 async function setDraft($: EngineInterface, field: 'title' | 'brief', value: string): Promise<void> {
-  await update($, adding, held => (held ? { ...held, [field]: value } : held))
+  await update($, addDraft, held => ({ ...held, [field]: value }))
 }
 
 // Reads one repo's list again after the pane wrote it, keeping the repos' order.
@@ -284,7 +289,7 @@ async function reloadRepo($: EngineInterface, repo: Repo): Promise<void> {
 
 // The one write the pane makes into a repo: an item at the end of its list.
 async function addItem($: EngineInterface, repo: Repo): Promise<void> {
-  const form = await read($, adding)
+  const form = (await read($, adding)) && (await read($, addDraft))
   const item = form && itemFields(form.title, form.brief)
   if (!item) {
     await update($, error, () => 'Add: the title is empty.')
@@ -603,7 +608,7 @@ export const register: Register = (on, options) => {
                 <Button
                   key={`add-to-${repo.path}`}
                   label={repo.hasList ? repo.name : `${repo.name} (new)`}
-                  onPress={() => update($, adding, held => ({ title: '', brief: '', ...held, repoPath: repo.path }))}
+                  onPress={() => update($, adding, () => ({ repoPath: repo.path }))}
                 />
               ))}
             <Button key="add-cancel" label="Cancel" dimColor onPress={() => update($, adding, () => null)} />
@@ -621,7 +626,6 @@ export const register: Register = (on, options) => {
                   key="add-title"
                   label="Title"
                   autoFocus
-                  value={form?.title ?? ''}
                   submitLabel="add"
                   placeholder="Retry stuck requests"
                   onInput={value => setDraft($, 'title', value)}
@@ -634,7 +638,6 @@ export const register: Register = (on, options) => {
                   key="add-brief"
                   label="Brief"
                   rows={3}
-                  value={form?.brief ?? ''}
                   submitLabel="add"
                   placeholder="What it is and why (optional)"
                   onInput={value => setDraft($, 'brief', value)}
