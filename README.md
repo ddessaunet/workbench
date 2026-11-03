@@ -4,8 +4,9 @@ Daily development tools for Claude Code, as one plugin. The first is a pane besi
 the chat that shows, across every repository on this machine:
 
 - **Up next**: the open items of each repo's `.claude/features.md`, with a
-  **Start** button that has Claude start a session for one, in that repo, in its own
-  worktree. **Add** opens a form for a repo (the filtered one, or one you pick):
+  **Copy** button that puts a prompt for one on your clipboard (work on it in that
+  repo, in its own worktree, and open a PR): open a new session, paste, read it over
+  and press Enter. **Add** opens a form for a repo (the filtered one, or one you pick):
   fill in a title and, if you like, a brief, and Enter in either field adds it to
   that repo's list; switching the repo filter closes the form and drops what you
   typed. **Create empty list** starts one for a repo that has none, and **Draft with
@@ -13,7 +14,7 @@ the chat that shows, across every repository on this machine:
   agree. A long title wraps within the pane; the **▸** at a row's start opens the brief and buttons beneath it,
   where **Done** marks the item `[x]` and **Remove**, pressed twice, deletes it and
   its brief.
-- **In progress**: items you started from Up next, with how long ago.
+- **In progress**: items you copied from Up next, with how long ago.
 - **Your PRs**: your open PRs with their CI state. Each leads with a **■**, green when its checks pass, and shows
   **Merge** while you point at the row; pressed twice, it merges the PR with
   `gh pr merge` the first way its repo allows (squash, then a merge commit, then
@@ -37,9 +38,10 @@ Every two minutes, and on **Refresh**, it:
 2. asks GitHub, in one `gh api graphql` call, for your open PRs, the PRs waiting on
    your review, and your PRs merged this week, in any repository.
 
-A plugin cannot open a desktop session itself, so **Start** and **Review** send the
-session the pane sits in a prompt (`hooks/prompts.ts`), and Claude starts the
-session. Which items you started is kept in the plugin's own store, not in
+A plugin cannot open a desktop session itself, so **Copy** puts a feature's prompt
+on the clipboard for you to paste into a new session, and **Review** sends the
+session the pane sits in a prompt, and Claude starts the review session; both
+prompts are in `hooks/prompts.ts`. Which items you started is kept in the plugin's own store, not in
 `features.md`, so starting work never leaves a change in a repo's checkout. The
 only file the pane writes is a repo's `.claude/features.md`, and only from Add,
 Create empty list, Done and Remove.

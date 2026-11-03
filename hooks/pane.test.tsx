@@ -50,10 +50,13 @@ const GH = JSON.stringify({
   },
 })
 
-test('the pane lists features, PRs and reviews, and Start hands Claude a prompt', async ($, on) => {
+test('the pane lists features, PRs and reviews, and Copy copies a prompt for a new session', async ($, on) => {
   // Nothing sits beneath the plugin: each hook here stands for the engine.
   mock.clock(on)
   const prompts: string[] = []
+  const copies: string[] = []
+  const toasts: string[] = []
+  let isClipboard = false
   const store = new Map<string, unknown>()
 
   on('command.register', () => ({ value: { command: 'workbench' } }))
@@ -89,6 +92,17 @@ test('the pane lists features, PRs and reviews, and Start hands Claude a prompt'
 
     return { text: e.text }
   })
+  on('ui.copy', (_, e) => {
+    if (!isClipboard) return { value: { isCopied: false, reason: 'no-clipboard' } }
+    copies.push(e.text)
+
+    return { value: { isCopied: true } }
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
@@ -109,12 +123,12 @@ test('the pane lists features, PRs and reviews, and Start hands Claude a prompt'
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /Add a retry action/ })).toBe(undefined)
-    expect(await ui.find({ key: `start-${REPO}#retry-stuck-requests` })).toBe(undefined)
+    expect(await ui.find({ key: `copy-${REPO}#retry-stuck-requests` })).toBe(undefined)
     await ui.press({ key: `expand-next-${REPO}#retry-stuck-requests` })
     expect((await ui.find({ type: 'Text', text: /Add a retry action/ }))?.text).toBe('Add a retry action.')
-    expect((await ui.find({ key: `start-${REPO}#retry-stuck-requests` }))?.text).toBe('Start')
+    expect((await ui.find({ key: `copy-${REPO}#retry-stuck-requests` }))?.text).toBe('Copy')
     await ui.press({ key: `expand-next-${REPO}#retry-stuck-requests` })
-    expect(await ui.find({ key: `start-${REPO}#retry-stuck-requests` })).toBe(undefined)
+    expect(await ui.find({ key: `copy-${REPO}#retry-stuck-requests` })).toBe(undefined)
     // Your PR's square comes first, then its link, in a column as wide as the
     // widest label (portal#12).
     const mine = await ui.find({ key: 'mine-https://github.com/me/stack/pull/86' })
@@ -148,16 +162,23 @@ test('the pane lists features, PRs and reviews, and Start hands Claude a prompt'
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.press({ key: `expand-next-${REPO}#retry-stuck-requests` })
-  await ui.press({ key: `start-${REPO}#retry-stuck-requests` })
-  expect(prompts[0]).toContain(`in ${REPO},`)
-  expect(prompts[0]).toContain('Add a retry action.')
+  // A copy that does not take leaves the item queued and says why.
+  await ui.press({ key: `copy-${REPO}#retry-stuck-requests` })
+  expect(toasts.pop()).toContain('no-clipboard')
+  expect(store.get('started')).toBe(undefined)
+  isClipboard = true
+  await ui.press({ key: `copy-${REPO}#retry-stuck-requests` })
+  expect(copies[0]).toContain(`in ${REPO},`)
+  expect(copies[0]).toContain('Add a retry action.')
+  expect(prompts).toEqual([])
+  expect(toasts.pop()).toContain('paste')
   expect(Object.keys(store.get('started') as object)).toEqual([`${REPO}#retry-stuck-requests`])
   expect((await ui.find({ key: `going-${REPO}#retry-stuck-requests` }))?.text).toContain('just now')
   expect(await ui.find({ type: 'Text', text: 'Nothing started.' })).toBe(undefined)
 
   const review = 'https://github.com/team/portal/pull/12'
   await ui.press({ key: `do-review-${review}`, link: { href: review } })
-  expect(prompts[1]).toContain('team/portal#12')
+  expect(prompts[0]).toContain('team/portal#12')
   await ui.unmount()
 })
 
@@ -368,6 +389,8 @@ test('Done marks an item [x] and Remove, pressed twice, deletes it with its brie
   })
   on('process.run', () => ({ value: empty }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('ui.copy', () => ({ value: { isCopied: true } }))
+  on('ui.toast', () => ({ value: undefined }))
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
@@ -399,7 +422,7 @@ test('Done marks an item [x] and Remove, pressed twice, deletes it with its brie
 
   // Started first, so Remove from In progress also forgets the start.
   await ui.press({ key: `expand-next-${REPO}#second-item` })
-  await ui.press({ key: `start-${REPO}#second-item` })
+  await ui.press({ key: `copy-${REPO}#second-item` })
   expect(Object.keys(store.get('started') as object)).toEqual([`${REPO}#second-item`])
   await ui.press({ key: `expand-going-${REPO}#second-item` })
   await ui.press({ key: `remove-${REPO}#second-item` })

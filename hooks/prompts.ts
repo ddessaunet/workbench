@@ -1,15 +1,14 @@
 import type { Feature, Pr, Repo } from '../types'
 
 // The pane cannot open a session itself: only Claude can, through the app.
-// So each button hands the session it sits in one of these prompts.
+// So a feature's prompt is copied for the owner to paste into a new session,
+// and the draft and review buttons hand the session they sit in a prompt.
 
-export function startPrompt(feature: Feature, repo: Repo): string {
+export function sessionPrompt(feature: Feature, repo: Repo): string {
   const brief = feature.brief || '(no brief written yet: ask me what it should do first)'
 
   return [
-    `Start a new session for this feature from my workbench, in ${repo.path},`,
-    `in its own worktree, titled "${feature.title}". Give it the brief below,`,
-    'and have it open a PR when the work is done.',
+    `Work on this feature in ${repo.path}, in its own worktree, and open a PR when it is done.`,
     '',
     `Feature: ${feature.title}`,
     brief,
