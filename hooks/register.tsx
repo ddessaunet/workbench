@@ -268,6 +268,14 @@ async function pickFilter($: EngineInterface, name: string): Promise<void> {
   await update($, adding, () => null)
 }
 
+// The pane opens on the session's own repo (a worktree's is its main tree's);
+// outside one it stays on all. A pick already made, kept over a reload, stays.
+async function preselect($: EngineInterface): Promise<void> {
+  if ((await read($, filter)) !== 'all') return
+  const repo = await $.session.repo().catch(() => null)
+  if (repo) await update($, filter, () => repo.root.slice(repo.root.lastIndexOf('/') + 1))
+}
+
 // Keeps one Add field's text as it is typed, so Enter in either field adds both.
 // The pane draws nothing from it: a keystroke that drew the form again would
 // hand the field back its own text, which blinks it and can drop a key.
@@ -373,6 +381,7 @@ async function begin($: EngineInterface, roots: string, minutes: number): Promis
   if (kept && typeof kept === 'object') {
     await update($, started, () => kept as Record<string, number>)
   }
+  await preselect($)
   void $.ui.open({ id: PANE, title: 'Workbench' })
   void refresh($, roots)
   $.clock.every(Math.max(1, minutes) * 60000, () => void refresh($, roots))

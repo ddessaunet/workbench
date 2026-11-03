@@ -24,7 +24,8 @@ the chat that shows, across every repository on this machine:
 - **Shipped this week**: your PRs merged in the last seven days.
 
 The pane works in the Claude desktop app's Code tab and in a terminal `claude`.
-`/workbench` opens it when it is closed.
+`/workbench` opens it when it is closed. It opens filtered to the repo the session
+is in (a worktree counts as its repo); **All repos** in the filter shows every one.
 
 ## How it works
 
