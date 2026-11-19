@@ -377,8 +377,9 @@ async function draft($: EngineInterface, repo: Repo): Promise<void> {
   await update($, adding, () => null)
 }
 
-// The pane opens and polling starts once per load, when something can draw
-// it. A reload starts over, its timers dropped with the old module.
+// Polling starts once per load, when something can draw the pane, so its data
+// is ready when /workbench opens it; nothing opens it unasked. A reload starts
+// over, its timers dropped with the old module.
 let hasBegun = false
 
 async function begin($: EngineInterface, roots: string, minutes: number): Promise<void> {
@@ -389,7 +390,6 @@ async function begin($: EngineInterface, roots: string, minutes: number): Promis
     await update($, started, () => kept as Record<string, number>)
   }
   await preselect($)
-  void $.ui.open({ id: PANE, title: 'Workbench' })
   void refresh($, roots)
   $.clock.every(Math.max(1, minutes) * 60000, () => void refresh($, roots))
 }
