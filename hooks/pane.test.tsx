@@ -514,7 +514,7 @@ test('a session nothing draws for opens nothing, scans nothing, polls nothing', 
   expect(calls).toEqual(['command.register'])
 })
 
-test('in the desktop app the pane opens and polls once its surface attaches', async ($, on) => {
+test('in the desktop app polling starts once its surface attaches, and the pane waits for /workbench', async ($, on) => {
   const clock = mock.clock(on)
   const calls: string[] = []
 
@@ -547,15 +547,19 @@ test('in the desktop app the pane opens and polls once its surface attaches', as
 
   await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
   await clock.advance(1)
-  expect(calls.filter(c => c === 'ui.open')).toHaveLength(1)
+  expect(calls.filter(c => c === 'ui.open')).toHaveLength(0)
   const scans = calls.filter(c => c === 'fs.list').length
   expect(scans).toBeGreaterThan(0)
 
-  // A second client attaching opens no second pane and starts no second timer.
+  // A second client attaching opens no pane and starts no second timer.
   await $.session.attach({ surface: 'mobile', clientId: 'mobile:phone' })
   await clock.advance(2 * 60 * 1000)
-  expect(calls.filter(c => c === 'ui.open')).toHaveLength(1)
+  expect(calls.filter(c => c === 'ui.open')).toHaveLength(0)
   expect(calls.filter(c => c === 'fs.list').length).toBe(scans * 2)
+
+  await $.command.run({ command: 'workbench' })
+  await clock.advance(1)
+  expect(calls.filter(c => c === 'ui.open')).toHaveLength(1)
 })
 
 test('one repo that cannot be read leaves the others and GitHub shown', async ($, on) => {
